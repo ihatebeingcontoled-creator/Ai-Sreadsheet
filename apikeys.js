@@ -129,6 +129,23 @@
 
   let store = loadStore();
 
+  // guards against the most common paste mistake: dropping in "GROQ_API_KEY=gsk_..." from an
+  // .env file, or a whole multi-line block, instead of just the bare key. A bloated key like
+  // that is the usual cause of Groq's "413 Request Entity Too Large" — the key rides along in
+  // every request header, and can push the request over the size limit.
+  function sanitizeKeyValue(raw) {
+    let v = (raw || "").trim();
+    if (/^[A-Za-z_][A-Za-z0-9_]*\s*=/.test(v)) {
+      v = v.slice(v.indexOf("=") + 1).trim();
+    }
+    if (v.indexOf("\n") !== -1) {
+      const firstLine = v.split("\n").map((s) => s.trim()).filter(Boolean)[0];
+      if (firstLine) v = firstLine;
+    }
+    v = v.replace(/^["']|["']$/g, "").trim();
+    return v;
+  }
+
   function getActiveKey(serviceId) {
     const sv = store[serviceId];
     if (!sv || !sv.activeId) return "";
@@ -149,9 +166,10 @@
 
   function addKey(serviceId, label, value) {
     const sv = store[serviceId];
-    if (!sv || !value) return;
+    const clean = sanitizeKeyValue(value);
+    if (!sv || !clean) return;
     const id = "k" + Date.now() + Math.floor(Math.random() * 1000);
-    sv.keys.push({ id, label: label || "Key " + (sv.keys.length + 1), value: value.trim() });
+    sv.keys.push({ id, label: label || "Key " + (sv.keys.length + 1), value: clean });
     if (!sv.activeId) sv.activeId = id; // first key for a service becomes active automatically
     saveStore(store);
     renderBar();
@@ -162,7 +180,7 @@
     const k = sv.keys.find((k) => k.id === keyId);
     if (!k) return;
     if (typeof fields.label === "string") k.label = fields.label;
-    if (typeof fields.value === "string" && fields.value.trim()) k.value = fields.value.trim();
+    if (typeof fields.value === "string" && fields.value.trim()) k.value = sanitizeKeyValue(fields.value);
     saveStore(store);
     renderBar();
   }
@@ -255,7 +273,7 @@
             width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0;
             font-family:'IBM Plex Mono', monospace; font-size:14.5px; padding:11px 13px; border-radius:8px; box-sizing:border-box; margin-bottom:10px;
           "/>
-          <input id="apiKeysNewValue" type="password" placeholder="API key..." autocomplete="off" style="
+          <input id="apiKeysNewValue" type="password" placeholder="Paste just the key itself \u2014 nothing else" autocomplete="off" style="
             width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0;
             font-family:'IBM Plex Mono', monospace; font-size:14.5px; padding:11px 13px; border-radius:8px; box-sizing:border-box;
           "/>
@@ -359,7 +377,8 @@
             <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
               <div style="min-width:0;">
                 <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(k.label)}</div>
-                <div style="font-size:12.5px; color:#5f6870; margin-top:3px;">${escapeHtml(maskValue(k.value))}</div>
+                <div style="font-size:12.5px; color:#5f6870; margin-top:3px;">${escapeHtml(maskValue(k.value))} <span style="opacity:.7;">(${k.value.length} chars)</span></div>
+                ${k.value.length > 120 ? `<div style="font-size:11.5px; color:#d9a441; margin-top:5px;">\u26A0\uFE0F This looks unusually long for an API key \u2014 double check nothing extra (like "KEY=", quotes, or a whole line) got pasted in. That's the usual cause of a Groq "413" error.</div>` : ""}
               </div>
               ${isActive ? `<span style="flex-shrink:0; font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#5fae7b; background:rgba(95,174,123,.14); border:1px solid rgba(95,174,123,.3); padding:4px 10px; border-radius:20px; white-space:nowrap;">\u2713 In production</span>` : ""}
             </div>
