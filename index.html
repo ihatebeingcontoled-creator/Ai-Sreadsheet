@@ -431,6 +431,7 @@
   </div>
 </div>
 
+<script src="safe-send.js"></script>
 <script src="storage.js"></script>
 <script src="apikeys.js"></script>
 <script src="ai.js"></script>
@@ -775,9 +776,11 @@ function renderBody(){
         <td class="agg-cell">\u2014</td>
         <td class="agg-cell">
           <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchNumberForCompany('${company.id}')" title="Pulls a phone number out of this company's Info text and fills it into every channel">${numberFetchBtnLabel(company.id)}</button>
+          ${window.SafeSend ? window.SafeSend.numberBtnHtml(company.id, uniqueFieldValues(company,'number')[0]||'') : ''}
         </td>
         <td class="agg-cell">
           <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchEmailForCompany('${company.id}')" title="Pulls an email address out of this company's Info text and fills it into every channel">${emailFetchBtnLabel(company.id)}</button>
+          ${window.SafeSend ? window.SafeSend.emailBtnHtml(company.id, uniqueFieldValues(company,'address')[0]||'') : ''}
         </td>
         <td class="info-cell">
           ${company.expanded ? `
@@ -1068,8 +1071,11 @@ function performSendAction(companyId, chName){
     const tpl = getChannelTemplate(ch, chName);
     const fill = (s) => (s || "").replace(/\{\{\s*company\s*\}\}/gi, c.name);
     const subject = fill(tpl && tpl.subject) || `Message for ${c.name}`;
+    // safe-send.js: while "Send Real Messages" is off, this redirects to your
+    // preset test address unless you've clicked "Use Real Email" for this company
+    const toAddress = window.SafeSend ? window.SafeSend.resolveAddress(c.id, ch.address) : ch.address;
 
-    return window.EmailSender.sendEmail({ to: ch.address, subject, text: ch.sentText })
+    return window.EmailSender.sendEmail({ to: toAddress, subject, text: ch.sentText })
       .then(() => {
         stopLoadingCycle(key);
         markSent(ch, chName);
