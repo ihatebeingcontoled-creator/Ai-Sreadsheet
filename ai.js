@@ -177,18 +177,39 @@
 
     const isCall = channel === "Calls";
     const fill = (s) => (s || "").replace(/\{\{\s*company\s*\}\}/gi, companyName);
+    const lang = (language && language.trim()) || "";
 
     const parts = [
       `You are writing a personalized ${isCall ? "cold-call script" : channel + " outreach message"} ` +
         `to send to the real company "${companyName}".`,
-      `Here is what's known about this company, from research:\n${companyInfo ? fill(companyInfo) : "(no research notes available)"}`,
     ];
+
+    // The language instruction goes early, in its own strongly-worded paragraph,
+    // and gets repeated at the end. Models like llama-3.3-70b-versatile tend to
+    // default to whatever language the template/company-info text below happens
+    // to be written in (usually English) unless this is impossible to miss —
+    // one quiet mention at the very end of a long prompt was getting overridden
+    // by the English template text that comes right before it.
+    if (lang) {
+      parts.push(
+        `CRITICAL LANGUAGE REQUIREMENT: Write your entire response in ${lang}, and ONLY in ${lang}. ` +
+          `This applies no matter what language the research notes or template below are written in \u2014 ` +
+          `translate/adapt their content into ${lang}, don't just copy their English wording. ` +
+          `Do not mix in English words or sentences.`
+      );
+    }
+
+    parts.push(
+      `Here is what's known about this company, from research:\n${companyInfo ? fill(companyInfo) : "(no research notes available)"}`
+    );
 
     if (templateText && templateText.trim()) {
       parts.push(
         `Use the following as a template/guide for tone, structure, and the key points to include. ` +
           `Personalize it for this specific company using the research above \u2014 don't just copy it verbatim, ` +
-          `adapt it so it clearly references something true about this company:\n${fill(templateText)}`
+          `adapt it so it clearly references something true about this company` +
+          (lang ? ` (and remember: write it in ${lang}, even though this template is in English)` : "") +
+          `:\n${fill(templateText)}`
       );
     } else {
       parts.push(
@@ -209,9 +230,9 @@
       );
     }
 
-    // extra instruction tacked on at the end, only when a language is actually set
-    if (language && language.trim()) {
-      parts.push(`Write your answer in ${language.trim()}.`);
+    // repeated one final time, last thing the model reads, as a last-resort catch
+    if (lang) {
+      parts.push(`Reminder: the entire output must be written in ${lang}.`);
     }
 
     const prompt = parts.join("\n\n");
