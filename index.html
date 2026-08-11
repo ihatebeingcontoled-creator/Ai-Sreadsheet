@@ -269,6 +269,9 @@
     background:var(--surface); border:1px solid var(--line);
     border-radius:14px; width:100%; max-width:460px; padding:8px 8px 20px; max-height:80vh; overflow-y:auto;
   }
+  .modal-sheet.wide{ max-width:920px; }
+  .modal-text-columns{ display:flex; flex-wrap:wrap; gap:14px; }
+  .modal-text-columns .modal-text-col{ flex:1 1 260px; min-width:0; }
   .modal-handle{display:none;}
   .modal-title{font-family:'Space Grotesk', sans-serif; font-size:12px; color:var(--text-dim); padding:0 14px 8px; text-transform:uppercase; letter-spacing:.07em;}
   .modal-option{
@@ -392,14 +395,18 @@
     <div class="modal-title" id="modalTitle">Select</div>
     <div id="modalOptions"></div>
     <div id="modalTextSection" style="display:none;">
-      <div class="modal-subtitle" id="modalTextSubtitle">Full text</div>
-      <div class="modal-text-wrap">
-        <textarea class="modal-textarea" id="modalTextArea" placeholder="Type here..."></textarea>
-      </div>
-      <div id="modalTextSection2" style="display:none;">
-        <div class="modal-subtitle" id="modalTextSubtitle2">Output</div>
-        <div class="modal-text-wrap">
-          <textarea class="modal-textarea" id="modalTextArea2" placeholder="Type here..."></textarea>
+      <div id="modalTextColumns" class="modal-text-columns">
+        <div class="modal-text-col">
+          <div class="modal-subtitle" id="modalTextSubtitle">Full text</div>
+          <div class="modal-text-wrap">
+            <textarea class="modal-textarea" id="modalTextArea" placeholder="Type here..."></textarea>
+          </div>
+        </div>
+        <div id="modalTextSection2" class="modal-text-col" style="display:none;">
+          <div class="modal-subtitle" id="modalTextSubtitle2">Output</div>
+          <div class="modal-text-wrap">
+            <textarea class="modal-textarea" id="modalTextArea2" placeholder="Type here..."></textarea>
+          </div>
         </div>
       </div>
       <div id="modalLinkRow" style="display:none;">
@@ -753,8 +760,13 @@ function renderBody(){
         <td class="agg-cell">${agg.aiDone}/${agg.total}</td>
         <td class="agg-cell">\u2014</td>
         <td class="agg-cell">\u2014</td>
-        <td class="agg-cell">${fieldSummary(company,'number')}</td>
-        <td class="agg-cell">${fieldSummary(company,'address')}</td>
+        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell">
+          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchNumberForCompany('${company.id}')" title="Pulls a phone number out of this company's Info text and fills it into every channel">${numberFetchBtnLabel(company.id)}</button>
+        </td>
+        <td class="agg-cell">
+          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchEmailForCompany('${company.id}')" title="Pulls an email address out of this company's Info text and fills it into every channel">${emailFetchBtnLabel(company.id)}</button>
+        </td>
         <td class="info-cell">
           ${company.expanded ? `
             <div class="info-actions">
@@ -1245,6 +1257,69 @@ function applyExtractedContacts(company, infoText){
   });
 }
 
+// manual "Fetch Number" / "Fetch Email" buttons live once at the top, on the
+// company row's Number/Address columns — same extraction script as the
+// auto-fill above, run on demand, but applied to EVERY channel at once
+// (Email, iMessage, Viber, Calls), and — since it's an explicit click —
+// this DOES overwrite whatever's already in those fields, not just empty
+// ones. The button briefly shows "Fetched!✅" (or a "not found" state) so
+// there's always visible confirmation of what happened.
+let fetchFeedback = {}; // 'num|<companyId>' or 'email|<companyId>' -> 'success' | 'none'
+const FETCH_FEEDBACK_MS = 1800;
+
+function numberFetchBtnLabel(companyId){
+  const state_ = fetchFeedback['num|' + companyId];
+  if(state_ === 'success') return "\u2705 Number Fetched!";
+  if(state_ === 'none') return "\u26a0\ufe0f No Number Found";
+  return "\u260E\uFE0F Fetch Number";
+}
+function emailFetchBtnLabel(companyId){
+  const state_ = fetchFeedback['email|' + companyId];
+  if(state_ === 'success') return "\u2705 Email Fetched!";
+  if(state_ === 'none') return "\u26a0\ufe0f No Email Found";
+  return "\u2709\uFE0F Fetch Email";
+}
+function flashFetchFeedback(key, result){
+  fetchFeedback[key] = result;
+  render();
+  setTimeout(() => {
+    delete fetchFeedback[key];
+    render();
+  }, FETCH_FEEDBACK_MS);
+}
+function fetchNumberForCompany(companyId){
+  const c = state.companies.find(c=>c.id===companyId);
+  if(!c) return;
+  const phone = extractPhoneFromInfo(c.info);
+  if(!phone){
+    flashFetchFeedback('num|' + companyId, 'none');
+    return;
+  }
+  CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'number', phone));
+  flashFetchFeedback('num|' + companyId, 'success');
+}
+function fetchEmailForCompany(companyId){
+  const c = state.companies.find(c=>c.id===companyId);
+  if(!c) return;
+  const email = extractEmailFromInfo(c.info);
+  if(!email){
+    flashFetchFeedback('email|' + companyId, 'none');
+    return;
+  }
+  CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'address', email));
+  flashFetchFeedback('email|' + companyId, 'success');
+}
+// same as updateField, but doesn't call render() itself — used when the caller
+// (fetchNumberForCompany/fetchEmailForCompany) is about to render anyway after
+// looping over every channel, so we're not re-rendering 4 times in a row
+function updateFieldSilent(companyId, channel, field, value){
+  const c = state.companies.find(c=>c.id===companyId);
+  c.channels[channel][field] = value;
+  if((field === 'number' || field === 'address') && value.trim()){
+    delete contactErrorFlags[actionKey(companyId, channel, 'send')];
+  }
+}
+
 /* Fetch Info and Generate Info are two buttons over the exact same real action:
    ask window.AI (ai.js) to actually research the company via Groq's web-search-enabled
    model. No more setTimeout + canned text — this is a real network call. */
@@ -1460,6 +1535,8 @@ function openModal(companyId, channel, field){
   retryBtn.style.display = "none";
   textSection2.style.display = "none";
   linkRow.style.display = "none";
+  // the AI Input/Output popup gets a wider sheet so the two columns have room
+  document.querySelector('.modal-sheet').classList.toggle('wide', field === 'ai');
 
   if(field === 'ai'){
     const sendKey = actionKey(companyId, channel, 'send');
