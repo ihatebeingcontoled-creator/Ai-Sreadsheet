@@ -768,9 +768,9 @@ function renderBody(){
           </td>
           <td class="actions-cell">
             ${chName === 'Calls' ? `
-              ${renderActionBtn(actionKey(company.id,chName,'script'), 'script', '📝 Script', '\u2705 Scripted', !!ch.script, aiErrorChannel(ch), `runAction('script','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
+              ${renderActionBtn(actionKey(company.id,chName,'script'), 'script', '📝 Script', '\u2705 Scripted', !!ch.script, aiErrorFlags[actionKey(company.id,chName,'script')] || aiErrorChannel(ch), `runAction('script','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
             ` : `
-              ${renderActionBtn(actionKey(company.id,chName,'draft'), 'draft', '✏️ Draft', '\u2705 Drafted', !!ch.sentText, aiErrorChannel(ch), `runAction('draft','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
+              ${renderActionBtn(actionKey(company.id,chName,'draft'), 'draft', '✏️ Draft', '\u2705 Drafted', !!ch.sentText, aiErrorFlags[actionKey(company.id,chName,'draft')] || aiErrorChannel(ch), `runAction('draft','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
               ${renderActionBtn(actionKey(company.id,chName,'send'), 'send', '📤 Send', '\u2705 Sent', ch.status==='Sent', sendErrorChannel(ch), `runAction('send','${company.id}','${chName}')`, !ch.sentText)}
             `}
           </td>
@@ -1075,6 +1075,8 @@ function runDraftAllSequential(companyId, onDone){
   startLoadingCycle(allKey, 'draftAll');
   render();
 
+  // each channel is a real AI call (performDraftAction) run one at a time, so a
+  // failure on one channel doesn't clobber the others and the buttons animate in order
   function step(idx){
     if(idx >= targets.length){
       stopLoadingCycle(allKey);
@@ -1085,34 +1087,78 @@ function runDraftAllSequential(companyId, onDone){
       return;
     }
     const chName = targets[idx];
-    const isCalls = chName === 'Calls';
-    const type = isCalls ? 'script' : 'draft';
-    const chKey = actionKey(companyId, chName, type);
-    btnBusy[chKey] = 'loading';
-    startLoadingCycle(chKey, type);
-    render();
-    setTimeout(() => {
-      stopLoadingCycle(chKey);
-      const chObj = c.channels[chName];
-      if(isCalls){
-        if(!chObj.script){
-          const tpl = getChannelTemplate(chObj, 'Calls');
-          if(tpl) chObj.script = tpl.text;
-        }
-      } else if(!chObj.sentText){
-        const tpl = getChannelTemplate(chObj, chName);
-        if(tpl) chObj.sentText = tpl.text;
-      }
-      doneFlags[chKey] = true;
-      btnBusy[chKey] = 'success';
-      render();
-      setTimeout(() => {
-        delete btnBusy[chKey];
-        step(idx + 1);
-      }, 350);
-    }, LOADING_DURATION);
+    performDraftAction(companyId, chName, { openOnSuccess: false }).then(() => {
+      step(idx + 1);
+    });
   }
   step(0);
+}
+
+/* performDraftAction — the actual "connect the AI that drafts the text" step.
+ * Gathers the company's info (from Fetch/Generate Info) and whatever template
+ * is attached to this channel, hands both to window.AI.fetchDraft (ai.js),
+ * and drops whatever it returns straight into the channel's draft
+ * (ch.sentText for Email/iMessage/Viber, ch.script for Calls) — exactly like
+ * performInfoAction does for company info. Returns a Promise<boolean> so
+ * callers (runAction, runDraftAllSequential) know whether it actually
+ * produced a draft or errored out.
+ */
+function performDraftAction(companyId, chName, opts){
+  const isCalls = chName === 'Calls';
+  const type = isCalls ? 'script' : 'draft';
+  const key = actionKey(companyId, chName, type);
+  if(btnBusy[key]) return Promise.resolve(false);
+
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels[chName];
+  if(!c.info) return Promise.resolve(false); // safety net — buttons are disabled without info anyway
+
+  btnBusy[key] = 'loading';
+  startLoadingCycle(key, type);
+  delete aiErrorFlags[key];
+  render();
+
+  // same "always look it up fresh by id" rule as performInfoAction, so edits to
+  // an attached template take effect on the very next Draft/Script/Draft All run
+  const tpl = getChannelTemplate(ch, chName);
+
+  return window.AI.fetchDraft({
+    companyName: c.name,
+    companyInfo: c.info,
+    channel: chName,
+    templateText: tpl ? tpl.text : "",
+    templateSubject: tpl ? tpl.subject : "",
+  })
+    .then(text => {
+      stopLoadingCycle(key);
+      if(isCalls){
+        ch.script = text;
+      } else {
+        ch.sentText = text;
+      }
+      doneFlags[key] = true;
+      btnBusy[key] = 'success';
+      render();
+      return new Promise(resolve => {
+        setTimeout(() => {
+          delete btnBusy[key];
+          render();
+          resolve(true);
+        }, 700);
+      });
+    })
+    .catch(err => {
+      stopLoadingCycle(key);
+      delete btnBusy[key];
+      aiErrorFlags[key] = (err && err.message) ? err.message : 'AI request failed';
+      // if this was part of an Automate / Draft All run, don't leave it spinning forever on failure
+      if(automateBusy[companyId]){
+        automateBusy[companyId] = false;
+        delete automateStage[companyId];
+      }
+      render();
+      return false;
+    });
 }
 
 /* Fetch Info and Generate Info are two buttons over the exact same real action:
