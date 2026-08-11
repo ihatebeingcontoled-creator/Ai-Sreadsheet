@@ -37,35 +37,57 @@
   /* ---------- tiny status pill so failures are never silent ---------- */
 
   function ensurePill() {
-    let el = document.getElementById("d1SyncPill");
-    if (el) return el;
-    el = document.createElement("div");
-    el.id = "d1SyncPill";
-    el.style.cssText =
-      "position:fixed; left:14px; bottom:14px; z-index:9999; font-family:'IBM Plex Mono',monospace; " +
-      "font-size:11.5px; padding:6px 12px; border-radius:20px; border:1px solid #3a4148; " +
-      "background:#1c2024; color:#98a0a7; box-shadow:0 2px 10px rgba(0,0,0,.3); transition:opacity .2s;";
-    document.body.appendChild(el);
-    return el;
+    let wrap = document.getElementById("d1SyncPill");
+    if (wrap) return wrap;
+    wrap = document.createElement("div");
+    wrap.id = "d1SyncPill";
+    wrap.style.cssText =
+      "position:fixed; left:14px; bottom:14px; z-index:9999; display:flex; align-items:center; gap:8px; " +
+      "font-family:'IBM Plex Mono',monospace; font-size:11.5px; padding:6px 8px 6px 12px; border-radius:20px; " +
+      "border:1px solid #3a4148; background:#1c2024; color:#98a0a7; box-shadow:0 2px 10px rgba(0,0,0,.3); " +
+      "transition:opacity .2s;";
+
+    const label = document.createElement("span");
+    label.id = "d1SyncPillLabel";
+    wrap.appendChild(label);
+
+    const btn = document.createElement("button");
+    btn.id = "d1ForceSaveBtn";
+    btn.type = "button";
+    btn.textContent = "Force Save";
+    btn.style.cssText =
+      "font-family:inherit; font-size:10.5px; line-height:1; padding:5px 9px; border-radius:14px; " +
+      "border:1px solid #3a4148; background:#262b30; color:#c7ccd1; cursor:pointer;";
+    btn.addEventListener("mouseenter", () => (btn.style.background = "#2d333a"));
+    btn.addEventListener("mouseleave", () => (btn.style.background = "#262b30"));
+    btn.addEventListener("click", () => {
+      if (window.AppStorage) window.AppStorage.forceSave();
+    });
+    wrap.appendChild(btn);
+
+    document.body.appendChild(wrap);
+    return wrap;
   }
 
   function setStatus(kind, detail) {
-    const el = ensurePill();
+    ensurePill();
+    const el = document.getElementById("d1SyncPillLabel");
+    const wrap = document.getElementById("d1SyncPill");
     if (kind === "saving") {
       el.textContent = "\u2601\uFE0F Saving to D1\u2026";
-      el.style.borderColor = "#3a4148";
+      wrap.style.borderColor = "#3a4148";
       el.style.color = "#98a0a7";
     } else if (kind === "saved") {
       el.textContent = "\u2601\uFE0F Saved to D1";
-      el.style.borderColor = "rgba(95,174,123,.35)";
+      wrap.style.borderColor = "rgba(95,174,123,.35)";
       el.style.color = "#5fae7b";
     } else if (kind === "loading") {
       el.textContent = "\u2601\uFE0F Loading from D1\u2026";
-      el.style.borderColor = "#3a4148";
+      wrap.style.borderColor = "#3a4148";
       el.style.color = "#98a0a7";
     } else if (kind === "error") {
       el.textContent = "\u26A0\uFE0F Save FAILED \u2014 not stored in D1" + (detail ? " (" + detail + ")" : "");
-      el.style.borderColor = "rgba(217,100,91,.4)";
+      wrap.style.borderColor = "rgba(217,100,91,.4)";
       el.style.color = "#d9645b";
     }
   }
@@ -145,6 +167,24 @@
     }
   }
 
+  // Manual "Force Save" button handler: skips the debounce and pushes
+  // whatever the last-known state is to D1 right now. `pendingData` is set
+  // by every save() call and is never cleared afterwards, so it always
+  // holds the freshest state this tab has seen, even if nothing changed
+  // since the last autosave.
+  async function forceSave() {
+    clearTimeout(saveTimer);
+    clearTimeout(retryTimer);
+    if (pendingData === null) {
+      // nothing has been staged in this tab yet (e.g. right after load
+      // with zero edits) — nothing new to push.
+      setStatus("saved");
+      return;
+    }
+    setStatus("saving");
+    await flush();
+  }
+
   async function clear() {
     localStorage.removeItem(CACHE_KEY);
     try {
@@ -158,5 +198,5 @@
     }
   }
 
-  window.AppStorage = { load, save, clear };
+  window.AppStorage = { load, save, clear, forceSave };
 })();
