@@ -5,7 +5,7 @@
  * own domain — no separate Worker, no wrangler, no terminal. It deploys
  * automatically every time the site deploys.
  *
- * Endpoints (all require header  X-App-Secret: <your secret>):
+ * Endpoints:
  *   GET    /api/state?id=default   -> { data: <saved JSON> | null }
  *   POST   /api/state              -> body: { id, data }  upserts the row
  *   DELETE /api/state?id=default   -> deletes the row
@@ -13,8 +13,10 @@
  * Requires, set up entirely in the Cloudflare dashboard (no CLI):
  *   - A D1 database bound to this Pages project as  DB
  *     (Pages project -> Settings -> Functions -> D1 database bindings)
- *   - An environment variable named  APP_SECRET
- *     (Pages project -> Settings -> Environment variables)
+ *
+ * No secret/auth check — this endpoint is open to anyone who can reach
+ * your site's URL. Fine for a personal tool nobody else knows the URL of,
+ * but be aware there's no gate on it.
  */
 
 function json(obj, status, headers) {
@@ -27,7 +29,7 @@ function json(obj, status, headers) {
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Methods": "GET, POST, DELETE, OPTIONS",
-  "Access-Control-Allow-Headers": "Content-Type, X-App-Secret",
+  "Access-Control-Allow-Headers": "Content-Type",
 };
 
 export async function onRequest(context) {
@@ -36,18 +38,6 @@ export async function onRequest(context) {
 
   if (request.method === "OPTIONS") {
     return new Response(null, { headers: corsHeaders });
-  }
-
-  if (!env.APP_SECRET) {
-    return json(
-      { error: "Server misconfigured: APP_SECRET env var is not set on this Pages project." },
-      500,
-      corsHeaders
-    );
-  }
-  const suppliedSecret = request.headers.get("X-App-Secret");
-  if (suppliedSecret !== env.APP_SECRET) {
-    return json({ error: "Unauthorized" }, 401, corsHeaders);
   }
 
   if (!env.DB) {
