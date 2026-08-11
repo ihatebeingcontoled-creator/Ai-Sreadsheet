@@ -1,0 +1,1471 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Outreach Ledger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#14171a;
+    --surface:#1c2024;
+    --surface-2:#20242a;
+    --line:#3a4148;
+    --line-soft:#2b3137;
+    --text:#e9e6e0;
+    --text-dim:#98a0a7;
+    --text-faint:#5f6870;
+    --green:#5fae7b;
+    --green-dim:rgba(95,174,123,.14);
+    --blue:#5a8fd6;
+    --blue-dim:rgba(90,143,214,.14);
+    --red:#d9645b;
+    --red-dim:rgba(217,100,91,.14);
+    --amber:#d9a441;
+    --amber-dim:rgba(217,164,65,.14);
+    --wood-a:#c99a5b;
+    --wood-b:#8a6a3f;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--bg);
+    color:var(--text);
+    font-family:'IBM Plex Mono', monospace;
+    min-height:100vh;
+    padding-bottom:50px;
+  }
+  .frame-bar{height:6px; background:linear-gradient(90deg,var(--wood-b),var(--wood-a),var(--wood-b));}
+  header{
+    padding:24px 18px 16px;
+    border-bottom:2px solid var(--line);
+    background:var(--surface);
+  }
+  .eyebrow{font-size:11px; letter-spacing:.14em; text-transform:uppercase; color:var(--text-faint); margin-bottom:6px;}
+  h1{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:24px; margin:0 0 12px; letter-spacing:-.01em;}
+  .stats-row{display:flex; gap:0; border:1px solid var(--line); border-radius:4px; overflow:hidden; width:fit-content;}
+  .stat-pill{padding:7px 14px; font-size:11px; color:var(--text-dim); border-right:1px solid var(--line); white-space:nowrap;}
+  .stat-pill:last-child{border-right:none;}
+  .stat-pill b{font-family:'Space Grotesk', sans-serif; color:var(--text); font-size:14px; display:block;}
+
+  main{width:100%; margin:0; padding:0;}
+
+  /* ---------- templates panel ---------- */
+  .templates-bar{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:12px 18px; background:var(--surface-2); border-bottom:1px solid var(--line); cursor:pointer;
+  }
+  .templates-bar-left{display:flex; align-items:center; gap:8px;}
+  .templates-bar-title{font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13px;}
+  .templates-count{font-size:11px; color:var(--text-faint);}
+  .chevron{color:var(--text-dim); font-size:11px; transition:transform .15s;}
+  .chevron.open{transform:rotate(90deg);}
+  .templates-panel{display:none; background:var(--surface); border-bottom:1px solid var(--line); padding:14px 18px 18px;}
+  .templates-panel.open{display:block;}
+  .template-card{background:var(--surface-2); border:1px solid var(--line); border-radius:8px; padding:12px 14px; margin-bottom:10px;}
+  .template-card-head{display:flex; align-items:center; gap:8px; margin-bottom:8px;}
+  .template-name-input{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:14px;
+    background:transparent; border:1px solid transparent; color:var(--text);
+    padding:3px 5px; border-radius:4px; flex:1; min-width:0;
+  }
+  .template-name-input:hover{border-color:var(--line);}
+  .template-name-input:focus{outline:none; border-color:var(--blue); background:var(--surface);}
+  .template-channel-tag{
+    font-size:10px; text-transform:uppercase; letter-spacing:.04em;
+    color:var(--blue); background:var(--blue-dim); padding:3px 7px; border-radius:20px; white-space:nowrap;
+  }
+  .field-label{font-size:9px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint); margin:8px 0 3px;}
+  .subject-input{
+    width:100%; background:var(--surface); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px; padding:7px 9px; border-radius:5px;
+  }
+  .subject-input:focus{outline:none; border-color:var(--blue);}
+  .text-area{
+    width:100%; min-height:70px; resize:vertical;
+    background:var(--surface); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px; line-height:1.5;
+    padding:8px 9px; border-radius:5px;
+  }
+  .text-area:focus{outline:none; border-color:var(--blue);}
+  .template-card-foot{display:flex; justify-content:flex-end; margin-top:8px;}
+  .del-link-small{background:none; border:none; color:var(--text-faint); font-size:11px; cursor:pointer; text-decoration:underline;}
+  .del-link-small:hover{color:var(--red);}
+  .add-template-row{display:flex; gap:8px; margin-top:4px;}
+  .add-template-row select, .add-template-row input{
+    background:var(--surface); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px; padding:8px 10px; border-radius:6px;
+  }
+  .add-template-row select{width:100px;}
+  .add-template-row input{flex:1;}
+  .add-template-btn{
+    background:var(--green-dim); color:var(--green); border:1px solid rgba(95,174,123,.3);
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:12.5px;
+    padding:0 14px; border-radius:6px; cursor:pointer;
+  }
+  .add-template-btn:hover{background:rgba(95,174,123,.22);}
+
+  /* ---------- ledger table ---------- */
+  .grid-wrap{overflow-x:auto; border-bottom:1px solid var(--line);}
+  table{ width:100%; border-collapse:collapse; font-size:12.5px; min-width:1040px; table-layout:fixed; }
+  thead th{ position:relative; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .col-resizer{
+    position:absolute; top:0; right:-3px; width:7px; height:100%;
+    cursor:col-resize; z-index:5; user-select:none; touch-action:none;
+  }
+  .col-resizer:hover, .col-resizer.resizing{ background:var(--blue); opacity:.5; }
+  thead th{
+    text-align:left; font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:11px;
+    text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim);
+    background:var(--surface-2); padding:10px 10px; border:1px solid var(--line); position:sticky; top:0;
+  }
+  tbody td{ border:1px solid var(--line-soft); padding:9px 10px; vertical-align:middle; }
+  tr.company-row td{ background:var(--surface-2); border-top:2px solid var(--line); border-bottom:1px solid var(--line); }
+  .company-name-cell{display:flex; align-items:center; gap:8px;}
+  .health-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
+  .health-green{background:var(--green);}
+  .health-amber{background:var(--amber);}
+  .health-red{background:var(--red);}
+  .company-name-text{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:14px; cursor:pointer;}
+  .toggle-link{
+    background:none; border:none; color:var(--blue); font-family:'IBM Plex Mono', monospace; font-size:11px;
+    text-decoration:underline; cursor:pointer; padding:0; margin-left:auto;
+  }
+  .del-link{background:none; border:none; color:var(--text-faint); font-size:15px; cursor:pointer; padding:0 2px;}
+  .del-link:hover{color:var(--red);}
+  .send-all-btn{
+    font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:20px; cursor:pointer;
+    border:1px solid transparent;
+  }
+  .send-all-btn.pending{background:var(--amber-dim); color:var(--amber); border-color:rgba(217,164,65,.3);}
+  .send-all-btn.pending:hover{background:rgba(217,164,65,.22);}
+  .send-all-btn.complete{background:var(--green-dim); color:var(--green); border-color:rgba(95,174,123,.3); cursor:default;}
+  .send-all-btn.error{background:var(--red-dim); color:var(--red); border-color:rgba(217,100,91,.3);}
+  .send-all-btn.error:hover{background:rgba(217,100,91,.22);}
+  .send-all-btn.running{background:var(--amber-dim); color:var(--amber); border-color:rgba(217,164,65,.3); cursor:default; display:inline-flex; align-items:center; gap:6px;}
+
+  tr.channel-row td.channel-name{color:var(--text-dim); font-size:12px; padding-left:26px;}
+  .row-retry-btn{
+    display:inline-block; margin-left:8px;
+    background:var(--amber-dim); color:var(--amber); border:1px solid rgba(217,164,65,.3);
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; font-weight:600;
+    padding:2px 8px; border-radius:20px; cursor:pointer;
+  }
+  .row-retry-btn:hover{background:rgba(217,164,65,.22);}
+
+  .cell-btn{
+    font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 9px; border-radius:4px;
+    border:1px solid transparent; cursor:pointer; white-space:nowrap;
+  }
+  .pill-green{background:var(--green-dim); color:var(--green); border-color:rgba(95,174,123,.3);}
+  .pill-red{background:var(--red-dim); color:var(--red); border-color:rgba(217,100,91,.3);}
+  .pill-amber{background:var(--amber-dim); color:var(--amber); border-color:rgba(217,164,65,.3);}
+  .pill-grey{background:transparent; color:var(--text-dim); border-color:var(--line);}
+  .pill-blue{background:var(--blue-dim); color:var(--blue); border-color:rgba(90,143,214,.3);}
+
+  .cell-input{
+    background:transparent; border:1px solid transparent; color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 6px; border-radius:4px; width:100%; min-width:80px;
+  }
+  .cell-input:hover{border-color:var(--line);}
+  .cell-input:focus{outline:none; border-color:var(--blue); background:var(--surface-2);}
+
+  .agg-cell{color:var(--text-dim); font-size:12.5px;}
+  .agg-cell.agg-complete{color:var(--green); font-weight:600;}
+
+  .actions-cell{display:flex; flex-direction:column; gap:4px; min-width:110px;}
+  .action-btn{
+    font-family:'IBM Plex Mono', monospace; font-size:10.5px; padding:4px 8px; border-radius:5px;
+    border:1px solid var(--line); background:var(--surface); color:var(--text-dim); cursor:pointer;
+    white-space:nowrap; text-align:left;
+  }
+  .action-btn:hover{border-color:var(--blue); color:var(--text);}
+  .action-btn.pending{color:var(--amber); border-color:rgba(217,164,65,.3); background:var(--amber-dim);}
+  .action-btn.pending:hover{background:rgba(217,164,65,.22); color:var(--text);}
+  .action-btn.error{color:var(--red); border-color:rgba(217,100,91,.3); background:var(--red-dim);}
+  .action-btn.error:hover{background:rgba(217,100,91,.22);}
+  .action-btn.loading{opacity:.75; cursor:default; display:flex; align-items:center; gap:6px;}
+  .action-btn.success{color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim); cursor:default;}
+  .action-btn.done{color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim); cursor:default; opacity:.9;}
+  .action-btn.disabled{color:var(--text-faint); border-color:var(--line-soft); background:transparent; cursor:not-allowed; opacity:.5;}
+  .btn-spinner{
+    width:10px; height:10px; border-radius:50%; flex-shrink:0;
+    border:2px solid rgba(233,230,224,.25); border-top-color:currentColor;
+    display:inline-block; animation:btn-spin .6s linear infinite;
+  }
+  @keyframes btn-spin{ to{ transform:rotate(360deg); } }
+
+  .text-preview-btn{
+    display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
+    color:var(--text-dim); font-family:'IBM Plex Mono', monospace; font-size:11.5px;
+    padding:5px 6px; border-radius:4px; cursor:pointer; max-width:150px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .text-preview-btn:hover{border-color:var(--line); color:var(--text);}
+  .text-preview-btn.empty{color:var(--text-faint); font-style:italic;}
+
+  td.info-cell{vertical-align:top; padding-top:10px; border-left:1px solid var(--line-soft); background:var(--surface-2);}
+  .info-actions{display:flex; flex-direction:column; gap:6px; margin-bottom:8px;}
+  .info-action-btn{
+    display:block; width:100%; text-align:left;
+    background:var(--surface); border:1px solid var(--line); color:var(--text-dim);
+    font-family:'IBM Plex Mono', monospace; font-size:11px; padding:6px 8px; border-radius:5px; cursor:pointer;
+  }
+  .info-action-btn:hover{border-color:var(--blue); color:var(--text);}
+  .info-action-btn.primary{color:var(--blue); border-color:rgba(90,143,214,.3); background:var(--blue-dim);}
+  .info-action-btn.primary:hover{background:rgba(90,143,214,.22);}
+  .info-preview-btn{
+    display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
+    color:var(--text-dim); font-family:'IBM Plex Mono', monospace; font-size:11.5px; line-height:1.5;
+    padding:5px 6px; border-radius:4px; cursor:pointer;
+    white-space:pre-wrap; word-break:break-word;
+  }
+  .info-preview-btn:hover{border-color:var(--line); color:var(--text);}
+  .info-preview-btn.empty{color:var(--blue); font-style:normal; font-weight:600;}
+
+  .attach-cell{display:flex; flex-wrap:wrap; gap:5px; align-items:center; max-width:170px;}
+  .attach-chip{
+    display:flex; align-items:center; gap:4px;
+    background:var(--surface-2); border:1px solid var(--line); border-radius:20px;
+    padding:3px 8px 3px 9px; font-size:10.5px; color:var(--text-dim); white-space:nowrap;
+  }
+  .attach-chip button{
+    background:none; border:none; color:var(--text-faint); cursor:pointer; font-size:12px; padding:0; line-height:1;
+  }
+  .attach-chip button:hover{color:var(--red);}
+  .attach-add-btn{
+    background:none; border:1px dashed var(--line); color:var(--text-dim);
+    font-family:'IBM Plex Mono', monospace; font-size:12px; width:24px; height:24px;
+    border-radius:6px; cursor:pointer; line-height:1; flex-shrink:0;
+  }
+  .attach-add-btn:hover{border-color:var(--blue); color:var(--blue);}
+
+  .add-row-wrap{padding:14px;}
+  .add-row{display:flex; gap:8px;}
+  .add-row input{
+    flex:1; background:var(--surface); border:1px solid var(--line); color:var(--text);
+    font-family:'Space Grotesk', sans-serif; font-size:13px; padding:10px 12px; border-radius:6px;
+  }
+  .add-row input:focus{outline:none; border-color:var(--green);}
+  .add-btn{
+    background:var(--green-dim); color:var(--green); border:1px solid rgba(95,174,123,.3);
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13px; padding:0 16px; border-radius:6px; cursor:pointer;
+  }
+  .add-btn:hover{background:rgba(95,174,123,.22);}
+
+  .empty-state{text-align:center; color:var(--text-faint); font-size:13px; padding:30px 20px;}
+
+  .modal-overlay{
+    position:fixed; inset:0; background:rgba(10,12,13,.65);
+    display:none; align-items:center; justify-content:center; z-index:50;
+  }
+  .modal-overlay.active{display:flex;}
+  .modal-sheet{
+    background:var(--surface); border:1px solid var(--line);
+    border-radius:14px; width:100%; max-width:460px; padding:8px 8px 20px; max-height:80vh; overflow-y:auto;
+  }
+  .modal-handle{display:none;}
+  .modal-title{font-family:'Space Grotesk', sans-serif; font-size:12px; color:var(--text-dim); padding:0 14px 8px; text-transform:uppercase; letter-spacing:.07em;}
+  .modal-option{
+    display:block; width:100%; text-align:left; background:none; border:none;
+    border-top:1px solid var(--line-soft); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:14px; padding:12px 14px; cursor:pointer;
+  }
+  .modal-option:hover{background:var(--surface-2);}
+  .modal-option.current{color:var(--green); font-weight:600;}
+  .modal-subtitle{font-size:11px; color:var(--text-faint); padding:14px 14px 6px; text-transform:uppercase; letter-spacing:.06em; border-top:1px solid var(--line-soft); margin-top:6px;}
+  .modal-text-wrap{padding:0 14px;}
+  .modal-textarea{
+    width:100%; min-height:110px; resize:vertical;
+    background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:13px; line-height:1.5;
+    padding:9px 10px; border-radius:6px;
+  }
+  .modal-textarea:focus{outline:none; border-color:var(--blue);}
+  .modal-link-wrap{display:flex; gap:8px;}
+  .modal-link-input{
+    flex:1; min-width:0;
+    background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px;
+    padding:9px 10px; border-radius:6px;
+  }
+  .modal-link-input:focus{outline:none; border-color:var(--blue);}
+  .modal-link-open{
+    display:flex; align-items:center; white-space:nowrap;
+    background:var(--blue-dim); color:var(--blue); border:1px solid rgba(90,143,214,.3);
+    font-family:'IBM Plex Mono', monospace; font-size:12px; font-weight:600;
+    padding:0 12px; border-radius:6px; text-decoration:none; cursor:pointer;
+  }
+  .modal-link-open:hover{background:rgba(90,143,214,.22);}
+  .modal-link-open.disabled{opacity:.4; pointer-events:none;}
+  .modal-actions{padding:10px 14px 0; display:flex; justify-content:flex-end;}
+  .modal-save-btn{
+    background:var(--green-dim); color:var(--green); border:1px solid rgba(95,174,123,.3);
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13px; padding:8px 16px; border-radius:6px; cursor:pointer;
+  }
+  .modal-save-btn:hover{background:rgba(95,174,123,.22);}
+  .modal-retry-btn{
+    background:var(--amber-dim); color:var(--amber); border:1px solid rgba(217,164,65,.3);
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13px; padding:8px 16px; border-radius:6px; cursor:pointer;
+    margin-right:auto;
+  }
+  .modal-retry-btn:hover{background:rgba(217,164,65,.22);}
+
+  footer{text-align:center; color:var(--text-faint); font-size:11px; padding:20px 20px 0; line-height:1.6;}
+</style>
+</head>
+<body>
+
+<div class="frame-bar"></div>
+<header>
+  <div class="eyebrow">Cold Outreach / Ledger</div>
+  <h1>Outreach Tracker</h1>
+  <div class="stats-row" id="statsRow"></div>
+</header>
+
+<main>
+  <div class="templates-bar" id="templatesBar">
+    <div class="templates-bar-left">
+      <span class="chevron" id="templatesChevron">&#9656;</span>
+      <span class="templates-bar-title">Templates</span>
+      <span class="templates-count" id="templatesCount"></span>
+    </div>
+  </div>
+  <div class="templates-panel" id="templatesPanel">
+    <div id="templateList"></div>
+    <div class="add-template-row">
+      <select id="newTemplateChannel">
+        <option>Email</option>
+        <option>iMessage</option>
+        <option>Viber</option>
+        <option>Calls</option>
+        <option>Info</option>
+      </select>
+      <input type="text" id="newTemplateName" placeholder="Template name..." />
+      <button class="add-template-btn" id="addTemplateBtn">+ Add</button>
+    </div>
+  </div>
+
+  <div class="grid-wrap">
+    <table id="ledgerTable">
+      <thead>
+        <tr>
+          <th style="width:150px;">Name<span class="col-resizer"></span></th>
+          <th style="width:130px;">Actions<span class="col-resizer"></span></th>
+          <th style="width:100px;">Status<span class="col-resizer"></span></th>
+          <th style="width:150px;">Response<span class="col-resizer"></span></th>
+          <th style="width:150px;">Sent Text<span class="col-resizer"></span></th>
+          <th style="width:110px;">AI Status<span class="col-resizer"></span></th>
+          <th style="width:120px;">Connection<span class="col-resizer"></span></th>
+          <th style="width:170px;">Attachments<span class="col-resizer"></span></th>
+          <th style="width:110px;">Number<span class="col-resizer"></span></th>
+          <th style="width:110px;">Address<span class="col-resizer"></span></th>
+          <th style="width:220px;">Info<span class="col-resizer"></span></th>
+        </tr>
+      </thead>
+      <tbody id="ledgerBody"></tbody>
+    </table>
+  </div>
+  <div class="add-row-wrap">
+    <div class="add-row">
+      <input type="text" id="newCompanyInput" placeholder="New company name..." />
+      <button class="add-btn" id="addCompanyBtn">+ Add row</button>
+    </div>
+  </div>
+  <footer>Runs in your browser only — data resets on refresh.<br>Attachments store file names only for now (no upload yet), and text/status resets too.<br>Ask me to wire this to D1 whenever you want it all saved for real.</footer>
+</main>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal-sheet">
+    <div class="modal-handle"></div>
+    <div class="modal-title" id="modalTitle">Select</div>
+    <div id="modalOptions"></div>
+    <div id="modalTextSection" style="display:none;">
+      <div class="modal-subtitle" id="modalTextSubtitle">Full text</div>
+      <div class="modal-text-wrap">
+        <textarea class="modal-textarea" id="modalTextArea" placeholder="Type here..."></textarea>
+      </div>
+      <div id="modalTextSection2" style="display:none;">
+        <div class="modal-subtitle" id="modalTextSubtitle2">Output</div>
+        <div class="modal-text-wrap">
+          <textarea class="modal-textarea" id="modalTextArea2" placeholder="Type here..."></textarea>
+        </div>
+      </div>
+      <div id="modalLinkRow" style="display:none;">
+        <div class="modal-subtitle">Chat Link</div>
+        <div class="modal-text-wrap modal-link-wrap">
+          <input type="text" class="modal-link-input" id="modalLinkInput" placeholder="e.g. https://mail.google.com/mail/u/0/..." />
+          <a class="modal-link-open" id="modalLinkOpen" href="#" target="_blank" rel="noopener">Open ↗</a>
+        </div>
+      </div>
+      <div class="modal-actions">
+        <button class="modal-retry-btn" id="modalRetryBtn" style="display:none;">Try Again</button>
+        <button class="modal-save-btn" id="modalSaveBtn">Save</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="storage.js"></script>
+<script src="ai.js"></script>
+<script>
+const CHANNEL_ORDER = ["Email","iMessage","Viber","Calls"];
+const STATUS_OPTS = ["Not Sent","Sent","Called","Uncalled","Ran Out of Credit"];
+const RESPONSE_OPTS = ["\u2014","No Reply","Interested","Not Interested","Replied"];
+const AI_OPTS = ["Uncalled","In Progress","Done!","Ran out of Credit","N/A"];
+const CONNECTION_OPTS = ["Ready to Send","Connecting...","Connected","Disconnected"];
+
+function blankChannel(chName){
+  return {
+    status: chName === "Calls" ? "Uncalled" : "Not Sent",
+    aiInput:"", aiOutput:"",
+    response:"\u2014", responseText:"", responseLink:"",
+    sentText:"", script:"", attachments:[], number:"", address:"",
+    ai:"Uncalled",
+    connection:"Disconnected"
+  };
+}
+
+let state = {
+  companies: [],
+  templates: [
+    { id:"t1", channel:"Email", name:"Email", subject:"Quick question about {{company}}", text:"Hi, I'm a 13-year-old developer from Kaunas — I built an AI chat widget for businesses like yours and wanted to share a quick demo." },
+    { id:"t2", channel:"iMessage", name:"iMessage", subject:"", text:"Hi! Saw your business online — I built an AI assistant that could help answer customer questions automatically. Mind if I send a quick demo link?" },
+    { id:"t3", channel:"Viber", name:"Viber Script", subject:"", text:"Hello! I'm reaching out about an AI chat widget I built for local businesses. Would you be open to a 2-minute demo?" },
+    { id:"t4", channel:"Calls", name:"Cold Call Script", subject:"", text:"Esu 13 metu programuotojas is Kauno - sukuriau AI produkta viesbuciams ir noriu pristatyti vadovui." },
+    { id:"t5", channel:"Info", name:"Company Research", subject:"", text:"Research {{company}}: summarize what they do, their key products or services, their specialties, their main competitors, target market/customers, company size, and any recent news. Present it as a short, clearly labeled bulleted summary." }
+  ]
+};
+
+let nextId = 1;
+let nextTemplateId = 6;
+let templatesOpen = false;
+let pendingModal = null; // {companyId, channel, field}
+
+// restore everything from last time, if there is anything saved
+(function restoreSaved(){
+  const saved = window.AppStorage && window.AppStorage.load();
+  if(saved && saved.state){
+    state = saved.state;
+    nextId = saved.nextId || nextId;
+    nextTemplateId = saved.nextTemplateId || nextTemplateId;
+  }
+})();
+
+function statusPillClass(v){
+  if(v==="Sent"||v==="Called") return "pill-green";
+  if(v==="Ran Out of Credit") return "pill-red";
+  return "pill-grey";
+}
+function responsePillClass(v){
+  if(v==="Interested") return "pill-green";
+  if(v==="Not Interested") return "pill-red";
+  if(v==="Replied") return "pill-amber";
+  return "pill-grey";
+}
+function aiPillClass(v){
+  if(v==="Done!") return "pill-green";
+  if(v==="Ran out of Credit") return "pill-red";
+  if(v==="In Progress") return "pill-amber";
+  return "pill-grey";
+}
+function channelAiDisplay(ch, chName, companyId){
+  // the AI Status pill doubles as the place to surface a blocked send (missing number/address)
+  const blocked = chName !== 'Calls' && contactErrorFlags[actionKey(companyId, chName, 'send')];
+  if(blocked) return { label: "Error", cls: "pill-red" };
+  return { label: ch.ai, cls: aiPillClass(ch.ai) };
+}
+function connectionPillClass(v){
+  if(v==="Connected") return "pill-green";
+  if(v==="Disconnected") return "pill-red";
+  if(v==="Connecting...") return "pill-amber";
+  return "pill-grey";
+}
+
+function sendErrorChannel(ch){
+  return ch.status === "Ran Out of Credit";
+}
+function aiErrorChannel(ch){
+  return ch.ai === "Ran out of Credit";
+}
+function hasErrorChannel(ch){
+  return sendErrorChannel(ch) || aiErrorChannel(ch);
+}
+
+/* ---------- contact-info guardrails: can't send without an address (Email) or number (iMessage/Viber) ---------- */
+function contactFieldFor(chName){
+  return chName === 'Email' ? 'address' : 'number';
+}
+function contactMissingChannel(ch, chName){
+  if(chName === 'Calls') return false; // Calls has no Send button
+  const field = contactFieldFor(chName);
+  return !ch[field] || !ch[field].trim();
+}
+function contactMissingLabel(chName){
+  return chName === 'Email' ? 'No Address' : 'No Number';
+}
+function contactMissingTitle(chName){
+  return chName === 'Email'
+    ? "Can't send \u2013 no email address on file. Add one in the Address column."
+    : "Can't send \u2013 no phone number on file. Add one in the Number column.";
+}
+let contactErrorFlags = {}; // actionKey(companyId, chName, 'send') -> true while blocked on missing contact info
+let aiErrorFlags = {}; // actionKey(...) -> error message string while a real AI call has failed
+function companyContactMissing(company){
+  return CHANNEL_ORDER.some(chName => {
+    if(chName === 'Calls') return false;
+    const ch = company.channels[chName];
+    if(ch.status === 'Sent') return false;
+    return contactMissingChannel(ch, chName);
+  });
+}
+function companySendError(company){
+  return CHANNEL_ORDER.some(chName => sendErrorChannel(company.channels[chName])) || companyContactMissing(company);
+}
+function companyDraftError(company){
+  return CHANNEL_ORDER.some(chName => aiErrorChannel(company.channels[chName]));
+}
+function companyHasError(company){
+  return CHANNEL_ORDER.some(chName => hasErrorChannel(company.channels[chName]));
+}
+function draftAllDone(company){
+  return CHANNEL_ORDER.every(chName => {
+    const c = company.channels[chName];
+    return chName === "Calls" ? !!c.script : !!c.sentText;
+  });
+}
+function anyDraftReady(company){
+  return CHANNEL_ORDER.some(chName => {
+    const c = company.channels[chName];
+    return chName === "Calls" ? !!c.script : !!c.sentText;
+  });
+}
+function sendAllDone(company){
+  return CHANNEL_ORDER.every(chName => {
+    const st = company.channels[chName].status;
+    return st === "Sent" || st === "Called";
+  });
+}
+
+function aggregate(company){
+  const chans = CHANNEL_ORDER.map(c => company.channels[c]);
+  const sent = chans.filter(c => c.status==="Sent" || c.status==="Called").length;
+  const responded = chans.filter(c => c.response!=="\u2014" && c.response!=="No Reply").length;
+  const aiDone = chans.filter(c => c.ai==="Done!").length;
+  return { sent, responded, aiDone, total: chans.length };
+}
+function uniqueFieldValues(company, field){
+  const vals = CHANNEL_ORDER.map(chName => (company.channels[chName][field] || "").trim()).filter(Boolean);
+  return [...new Set(vals)];
+}
+function fieldSummary(company, field){
+  const vals = uniqueFieldValues(company, field);
+  return vals.length ? vals.join(", ") : "\u2014";
+}
+function healthClass(agg){
+  const score = agg.sent + agg.aiDone;
+  if(score >= 6) return "health-green";
+  if(score >= 3) return "health-amber";
+  return "health-red";
+}
+
+function render(){
+  renderStats();
+  renderTemplates();
+  renderBody();
+  // autosave everything on every render, so nothing is ever lost
+  if(window.AppStorage) window.AppStorage.save({ state, nextId, nextTemplateId });
+}
+
+function renderStats(){
+  const totalCompanies = state.companies.length;
+  let totalSent=0, totalResp=0, totalAi=0, totalPossible=0;
+  state.companies.forEach(c=>{
+    const a = aggregate(c);
+    totalSent += a.sent; totalResp += a.responded; totalAi += a.aiDone; totalPossible += a.total;
+  });
+  document.getElementById('statsRow').innerHTML = `
+    <div class="stat-pill"><b>${totalCompanies}</b>companies</div>
+    <div class="stat-pill"><b>${totalSent}/${totalPossible}</b>sent</div>
+    <div class="stat-pill"><b>${totalResp}/${totalPossible}</b>replied</div>
+    <div class="stat-pill"><b>${totalAi}/${totalPossible}</b>ai done</div>
+  `;
+}
+
+function renderTemplates(){
+  document.getElementById('templatesCount').textContent = `${state.templates.length} saved`;
+  const list = document.getElementById('templateList');
+  if(state.templates.length===0){
+    list.innerHTML = `<div class="empty-state">No templates yet.</div>`;
+    return;
+  }
+  list.innerHTML = state.templates.map(t => `
+    <div class="template-card">
+      <div class="template-card-head">
+        <span class="template-channel-tag">${t.channel}</span>
+        <input class="template-name-input" value="${escAttr(t.name)}" onchange="updateTemplate('${t.id}','name',this.value)" />
+      </div>
+      ${t.channel === 'Email' ? `
+        <div class="field-label">Subject</div>
+        <input class="subject-input" value="${escAttr(t.subject)}" placeholder="Subject line..." onchange="updateTemplate('${t.id}','subject',this.value)" />
+      ` : ``}
+      <div class="field-label">Text</div>
+      <textarea class="text-area" placeholder="Message text...">${t.text}</textarea>
+      <div class="template-card-foot">
+        <button class="del-link-small" onclick="deleteTemplate('${t.id}')">Delete</button>
+      </div>
+    </div>
+  `).join("");
+  // bind textarea change listeners without re-rendering mid-type
+  list.querySelectorAll('.template-card').forEach((card, i) => {
+    const ta = card.querySelector('.text-area');
+    const t = state.templates[i];
+    ta.addEventListener('change', ()=> { t.text = ta.value; });
+  });
+}
+
+function escAttr(s){
+  return (s||"").replace(/"/g,'&quot;');
+}
+
+function updateTemplate(id, field, value){
+  const t = state.templates.find(t=>t.id===id);
+  t[field] = value;
+  render();
+}
+function deleteTemplate(id){
+  state.templates = state.templates.filter(t=>t.id!==id);
+  render();
+}
+function addTemplate(){
+  const channel = document.getElementById('newTemplateChannel').value;
+  const nameInput = document.getElementById('newTemplateName');
+  const name = nameInput.value.trim() || `${channel} Template`;
+  state.templates.push({ id:'t'+(nextTemplateId++), channel, name, subject:"", text:"" });
+  nameInput.value = "";
+  render();
+}
+
+function renderBody(){
+  const body = document.getElementById('ledgerBody');
+  if(state.companies.length===0){
+    body.innerHTML = `<tr><td colspan="11"><div class="empty-state">No companies yet. Add your first row below.</div></td></tr>`;
+    return;
+  }
+
+  let html = "";
+  state.companies.forEach(company => {
+    const agg = aggregate(company);
+    const hc = healthClass(agg);
+    const companyInfoPreview = company.info ? company.info : "";
+
+    html += `
+      <tr class="company-row">
+        <td>
+          <div class="company-name-cell">
+            <span class="health-dot ${hc}"></span>
+            <span class="company-name-text" onclick="toggleExpand('${company.id}')">${company.name}</span>
+            ${company.expanded ? `<button class="send-all-btn ${automateBusy[company.id] ? 'running' : (sendAllDone(company) ? 'complete' : (companyContactMissing(company) ? 'error' : 'pending'))}" onclick="runAutomateAll('${company.id}')" ${automateBusy[company.id] || sendAllDone(company) ? 'disabled' : ''} title="${companyContactMissing(company) && !automateBusy[company.id] ? 'Some channels are missing a number or address \u2013 see the Send buttons below' : 'Fetch Info \u2192 Draft All \u2192 Send All'}">${automateBusy[company.id] ? `<span class="btn-spinner"></span>${automateStage[company.id] || 'Running...'}` : (sendAllDone(company) ? '\u2705 All Sent!' : (companyContactMissing(company) ? '\u26a0\ufe0f Automate' : '\u26a1 Automate'))}</button>` : ``}
+            <button class="toggle-link" onclick="toggleExpand('${company.id}')">${company.expanded ? 'Show Less' : 'Show More'}</button>
+            <button class="del-link" onclick="deleteCompany('${company.id}')" title="Remove">&times;</button>
+          </div>
+        </td>
+        <td class="${company.expanded ? 'actions-cell' : 'agg-cell'}">
+          ${company.expanded ? `
+            ${renderActionBtn(actionKey(company.id,'','fetchInfo'), 'fetchInfo', '🔍 Fetch Info', '\u2705 Fetched', !!company.info, aiErrorFlags[actionKey(company.id,'','fetchInfo')], `runAction('fetchInfo','${company.id}','')`)}
+            ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runAction('draftAll','${company.id}','')`, !company.info, "Fetch or generate company info first")}
+            ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
+          ` : `\u2014`}
+        </td>
+        <td class="agg-cell${agg.sent===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sent}/${agg.total}</td>
+        <td class="agg-cell">${agg.responded}/${agg.total}</td>
+        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell">${agg.aiDone}/${agg.total}</td>
+        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell">${fieldSummary(company,'number')}</td>
+        <td class="agg-cell">${fieldSummary(company,'address')}</td>
+        <td class="info-cell">
+          ${company.expanded ? `
+            <div class="info-actions">
+              ${company.infoTemplateId ? `
+                <span class="attach-chip">📎 ${escAttr((state.templates.find(t=>t.id===company.infoTemplateId)||{}).name || 'Template')}<button onclick="removeInfoTemplate('${company.id}')">&times;</button></span>
+              ` : ``}
+              <button class="info-action-btn" onclick="openInfoTemplatePicker('${company.id}')">📎 ${company.infoTemplateId ? 'Change' : 'Attach'} Template</button>
+              ${renderActionBtn(actionKey(company.id,'','generateInfo'), 'generateInfo', '✨ Generate Info', '\u2705 Generated', !!company.info, aiErrorFlags[actionKey(company.id,'','generateInfo')], `runGenerateInfo('${company.id}')`)}
+            </div>
+          ` : `
+            <button class="info-preview-btn ${companyInfoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')">${companyInfoPreview ? escAttr(companyInfoPreview) : 'No info yet'}</button>
+          `}
+        </td>
+      </tr>
+    `;
+
+    if(!company.expanded){ return; }
+
+    CHANNEL_ORDER.forEach((chName, chIdx) => {
+      const ch = company.channels[chName];
+      const sentPreview = ch.sentText ? ch.sentText : "";
+      const infoPreview = company.info ? company.info : "";
+      const attachHtml = ch.attachments.map((fn, idx) => `
+        <span class="attach-chip">${escAttr(fn)}<button onclick="removeAttachment('${company.id}','${chName}',${idx})">&times;</button></span>
+      `).join("");
+
+      html += `
+        <tr class="channel-row" data-company="${company.id}">
+          <td class="channel-name">
+            ${chName}
+            ${ch.status === 'Ran Out of Credit' ? `<button class="row-retry-btn" onclick="retryChannel('${company.id}','${chName}')">Try Again</button>` : ``}
+          </td>
+          <td class="actions-cell">
+            ${chName === 'Calls' ? `
+              ${renderActionBtn(actionKey(company.id,chName,'script'), 'script', '📝 Script', '\u2705 Scripted', !!ch.script, aiErrorChannel(ch), `runAction('script','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
+            ` : `
+              ${renderActionBtn(actionKey(company.id,chName,'draft'), 'draft', '✏️ Draft', '\u2705 Drafted', !!ch.sentText, aiErrorChannel(ch), `runAction('draft','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
+              ${renderActionBtn(actionKey(company.id,chName,'send'), 'send', '📤 Send', '\u2705 Sent', ch.status==='Sent', sendErrorChannel(ch), `runAction('send','${company.id}','${chName}')`, !ch.sentText)}
+            `}
+          </td>
+          <td>
+            <button class="cell-btn ${statusPillClass(ch.status)}" onclick="openModal('${company.id}','${chName}','status')">${ch.status}</button>
+          </td>
+          <td>
+            <button class="cell-btn ${responsePillClass(ch.response)}" onclick="openModal('${company.id}','${chName}','response')">${ch.response}</button>
+          </td>
+          <td>
+            <button class="text-preview-btn ${sentPreview?'':'empty'}" onclick="openModal('${company.id}','${chName}','sentText')">${sentPreview ? escAttr(sentPreview) : 'Add sent text...'}</button>
+          </td>
+          <td><button class="cell-btn ${channelAiDisplay(ch, chName, company.id).cls}" onclick="openModal('${company.id}','${chName}','ai')">${channelAiDisplay(ch, chName, company.id).label}${(ch.aiInput || ch.aiOutput) ? ' •' : ''}</button></td>
+          <td><button class="cell-btn ${connectionPillClass(ch.connection)}" onclick="openModal('${company.id}','${chName}','connection')">${ch.connection}</button></td>
+          <td>
+            <div class="attach-cell">
+              ${attachHtml}
+              ${ch.attachments.length === 0 ? `<button class="attach-add-btn" onclick="openAttachChoice('${company.id}','${chName}')" title="Add attachment">+</button>` : ``}
+              <input type="file" style="display:none;" id="fileinput-${company.id}-${chName}" onchange="handleFileSelect(event,'${company.id}','${chName}')" />
+            </div>
+          </td>
+          <td><input class="cell-input" value="${ch.number}" placeholder="+370..." onchange="updateField('${company.id}','${chName}','number',this.value)" /></td>
+          <td><input class="cell-input" value="${ch.address}" placeholder="@..." onchange="updateField('${company.id}','${chName}','address',this.value)" /></td>
+          ${chIdx === 0 ? `
+          <td class="info-cell" rowspan="${CHANNEL_ORDER.length}">
+            <button class="info-preview-btn ${infoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')">${infoPreview ? escAttr(infoPreview) : 'No info yet'}</button>
+          </td>
+          ` : ``}
+        </tr>
+      `;
+    });
+  });
+
+  body.innerHTML = html;
+}
+
+function toggleExpand(id){
+  const c = state.companies.find(c=>c.id===id);
+  c.expanded = !c.expanded;
+  render();
+}
+function deleteCompany(id){
+  state.companies = state.companies.filter(c=>c.id!==id);
+  render();
+}
+function updateField(companyId, channel, field, value){
+  const c = state.companies.find(c=>c.id===companyId);
+  c.channels[channel][field] = value;
+  // typing a value into the field that was missing clears the "no number/address" send error for that channel
+  if((field === 'number' || field === 'address') && value.trim()){
+    delete contactErrorFlags[actionKey(companyId, channel, 'send')];
+  }
+  render();
+}
+
+function markSent(channelObj, chName){
+  channelObj.status = (chName === 'Calls') ? 'Called' : 'Sent';
+  if(!channelObj.sentText){
+    const tpl = state.templates.find(t => t.channel === chName);
+    if(tpl) channelObj.sentText = tpl.text;
+  }
+}
+function retryChannel(companyId, chName){
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels[chName];
+  ch.status = (chName === 'Calls') ? 'Uncalled' : 'Not Sent';
+  // clear the underlying error too, not just the status label, or it'll show as errored forever
+  if(ch.ai === 'Ran out of Credit'){
+    ch.ai = 'Uncalled';
+    ch.aiOutput = '';
+  }
+  render();
+}
+
+/* ---------- action buttons: loading -> success -> normal (or permanent) ---------- */
+let btnBusy = {}; // key -> 'loading' | 'success'
+let doneFlags = {}; // key -> true once an action has successfully completed; stays true forever (until page refresh)
+
+const LOADING_DURATION = 1600; // ms an action spends in the loading state
+const STAGE_MESSAGES = {
+  send: ["Gathering data to send...", "Sending to API...", "Waiting for response...", "Sending to phone..."],
+  sendAll: ["Gathering data to send...", "Sending to API...", "Waiting for response...", "Sending to phone..."],
+  draft: ["Gathering context...", "Sending to API...", "Waiting for response...", "Formatting draft..."],
+  draftAll: ["Gathering context...", "Sending to API...", "Waiting for response...", "Formatting drafts..."],
+  script: ["Gathering context...", "Sending to API...", "Waiting for response...", "Writing script..."],
+  fetchInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
+  fetchAllInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
+  generateInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
+};
+let loadingStage = {}; // key -> current stage index
+let loadingIntervals = {}; // key -> interval id
+
+function startLoadingCycle(key, type){
+  const stages = STAGE_MESSAGES[type];
+  if(!stages) return;
+  loadingStage[key] = 0;
+  clearInterval(loadingIntervals[key]);
+  const tick = LOADING_DURATION / stages.length;
+  loadingIntervals[key] = setInterval(() => {
+    if(loadingStage[key] < stages.length - 1){
+      loadingStage[key]++;
+      render();
+    }
+  }, tick);
+}
+function stopLoadingCycle(key){
+  clearInterval(loadingIntervals[key]);
+  delete loadingIntervals[key];
+  delete loadingStage[key];
+}
+
+function actionKey(companyId, chName, type){
+  return `${companyId}|${chName||'all'}|${type}`;
+}
+
+function renderActionBtn(key, type, label, doneLabel, isDone, hasError, onClickAttr, disabled, disabledTitle){
+  const busy = btnBusy[key];
+  if(busy === 'loading'){
+    const stages = STAGE_MESSAGES[type];
+    const text = stages ? stages[loadingStage[key] || 0] : "Loading...";
+    return `<button class="action-btn loading" disabled><span class="btn-spinner"></span>${text}</button>`;
+  }
+  if(busy === 'success'){
+    return `<button class="action-btn success" disabled>\u2705 Success!</button>`;
+  }
+  // once an action actually succeeds it stays done forever, even if some other stale error flag lingers
+  if(doneFlags[key] || isDone){
+    return `<button class="action-btn done" disabled>${doneLabel}</button>`;
+  }
+  // missing contact info (no address for Email / no number for iMessage & Viber) blocks Send specifically,
+  // and shows the error right on the Send button itself instead of anywhere else — same red "try again" pattern
+  // as every other error button, just with the reason in the tooltip instead of replacing the label
+  if(type === 'send' && contactErrorFlags[key]){
+    const chNameForKey = key.split('|')[1];
+    return `<button class="action-btn error" onclick="${onClickAttr}" title="${contactMissingTitle(chNameForKey)}">\u26a0\ufe0f ${label}</button>`;
+  }
+  if(disabled){
+    return `<button class="action-btn disabled" disabled title="${disabledTitle || 'Draft it first'}">${label}</button>`;
+  }
+  // errors stay red until the underlying error is actually cleared (e.g. via Try Again)
+  // hasError can be `true` (generic) or a string (real error message to show as the tooltip)
+  if(hasError){
+    const title = typeof hasError === 'string' ? hasError : "Errored \u2013 click to retry";
+    return `<button class="action-btn error" onclick="${onClickAttr}" title="${escAttr(title)}">\u26a0\ufe0f ${label}</button>`;
+  }
+  return `<button class="action-btn pending" onclick="${onClickAttr}">${label}</button>`;
+}
+
+function runAction(type, companyId, chName){
+  // fetchInfo is now a real AI call (see ai.js) with its own async flow, not the
+  // generic fixed-duration simulator below
+  if(type === 'fetchInfo'){
+    runFetchInfoStep(companyId);
+    return;
+  }
+
+  const key = actionKey(companyId, chName, type);
+  if(btnBusy[key]) return;
+
+  // guardrail: can't send Email without an address, can't send iMessage/Viber without a number
+  if(type === 'send'){
+    const cGuard = state.companies.find(c=>c.id===companyId);
+    const chGuard = cGuard.channels[chName];
+    if(contactMissingChannel(chGuard, chName)){
+      contactErrorFlags[key] = true;
+      render();
+      return;
+    }
+    delete contactErrorFlags[key];
+  }
+
+  // guardrail: can't draft/script a message off company research that doesn't exist yet
+  if(type === 'draft' || type === 'script' || type === 'draftAll'){
+    const cGuard = state.companies.find(c=>c.id===companyId);
+    if(!cGuard.info){
+      render(); // the button is already disabled in this state, this is just a safety net
+      return;
+    }
+  }
+
+  btnBusy[key] = 'loading';
+  startLoadingCycle(key, type);
+  render();
+  setTimeout(() => {
+    stopLoadingCycle(key);
+    const c = state.companies.find(c=>c.id===companyId);
+    if(type === 'draft'){
+      const chObj = c.channels[chName];
+      if(!chObj.sentText){
+        const tpl = state.templates.find(t => t.channel === chName);
+        if(tpl) chObj.sentText = tpl.text;
+      }
+    } else if(type === 'script'){
+      const chObj = c.channels[chName];
+      if(!chObj.script){
+        const tpl = state.templates.find(t => t.channel === 'Calls');
+        if(tpl) chObj.script = tpl.text;
+      }
+    } else if(type === 'send'){
+      markSent(c.channels[chName], chName);
+    } else if(type === 'draftAll'){
+      CHANNEL_ORDER.forEach(ch2 => {
+        const chObj = c.channels[ch2];
+        if(ch2 === 'Calls'){
+          if(!chObj.script){
+            const tpl = state.templates.find(t => t.channel === 'Calls');
+            if(tpl) chObj.script = tpl.text;
+          }
+        } else if(!chObj.sentText){
+          const tpl = state.templates.find(t => t.channel === ch2);
+          if(tpl) chObj.sentText = tpl.text;
+        }
+      });
+    } else if(type === 'sendAll'){
+      CHANNEL_ORDER.forEach(ch2 => markSent(c.channels[ch2], ch2));
+    }
+
+    // a successful action clears any stale error on that channel so it doesn't linger
+    if(chName && c.channels[chName] && c.channels[chName].ai === 'Ran out of Credit'){
+      c.channels[chName].ai = 'Uncalled';
+      c.channels[chName].aiOutput = '';
+    }
+
+    if(type === 'draft' || type === 'send' || type === 'script' || type === 'fetchAllInfo'){
+      doneFlags[key] = true;
+    } else if(type === 'draftAll'){
+      doneFlags[key] = true;
+      CHANNEL_ORDER.forEach(ch2 => {
+        doneFlags[actionKey(companyId, ch2, ch2 === 'Calls' ? 'script' : 'draft')] = true;
+      });
+    } else if(type === 'sendAll'){
+      doneFlags[key] = true;
+      CHANNEL_ORDER.forEach(ch2 => {
+        doneFlags[actionKey(companyId, ch2, 'send')] = true;
+      });
+    }
+
+    btnBusy[key] = 'success';
+    render();
+    setTimeout(() => {
+      delete btnBusy[key];
+      if(type === 'draft') openModal(companyId, chName, 'sentText');
+      else if(type === 'script') openModal(companyId, chName, 'script');
+      else render();
+    }, 1000);
+  }, LOADING_DURATION);
+}
+
+function sendAll(companyId){
+  runSendAllSequential(companyId);
+}
+
+function runSendAllSequential(companyId, onDone){
+  const allKey = actionKey(companyId, '', 'sendAll');
+  if(btnBusy[allKey]) { if(onDone) onDone(); return; }
+  const c = state.companies.find(c=>c.id===companyId);
+
+  // guardrail: skip channels with no address (Email) / no number (iMessage, Viber) instead of sending,
+  // and flag their Send buttons directly so the error is visible right where it can't send
+  let blockedAny = false;
+  const targets = CHANNEL_ORDER.filter(chName => {
+    const ch = c.channels[chName];
+    if(ch.status === 'Sent' || ch.status === 'Called') return false;
+    if(sendErrorChannel(ch)) return false;
+    if(chName !== 'Calls' && contactMissingChannel(ch, chName)){
+      contactErrorFlags[actionKey(companyId, chName, 'send')] = true;
+      blockedAny = true;
+      return false;
+    }
+    return true;
+  });
+
+  if(targets.length === 0){
+    // nothing left that's actually sendable this round
+    stopLoadingCycle(allKey);
+    delete btnBusy[allKey];
+    if(blockedAny) delete doneFlags[allKey]; // don't show "All Sent" when some channels were blocked
+    render();
+    if(onDone) onDone();
+    return;
+  }
+
+  btnBusy[allKey] = 'loading';
+  startLoadingCycle(allKey, 'sendAll');
+  render();
+
+  function step(idx){
+    if(idx >= targets.length){
+      stopLoadingCycle(allKey);
+      if(!blockedAny) doneFlags[allKey] = true; // don't mark "All Sent" if some channels were blocked on missing contact info
+      btnBusy[allKey] = 'success';
+      render();
+      setTimeout(() => { delete btnBusy[allKey]; render(); if(onDone) onDone(); }, 700);
+      return;
+    }
+    const chName = targets[idx];
+    const chKey = actionKey(companyId, chName, 'send');
+    btnBusy[chKey] = 'loading';
+    startLoadingCycle(chKey, 'send');
+    render();
+    setTimeout(() => {
+      stopLoadingCycle(chKey);
+      markSent(c.channels[chName], chName);
+      doneFlags[chKey] = true;
+      btnBusy[chKey] = 'success';
+      render();
+      setTimeout(() => {
+        delete btnBusy[chKey];
+        step(idx + 1);
+      }, 350);
+    }, LOADING_DURATION);
+  }
+  step(0);
+}
+
+function runDraftAllSequential(companyId, onDone){
+  const allKey = actionKey(companyId, '', 'draftAll');
+  if(btnBusy[allKey]) { if(onDone) onDone(); return; }
+  const c = state.companies.find(c=>c.id===companyId);
+  if(!c.info){ if(onDone) onDone(); return; } // safety net: Automate always fetches info first, but guard here too
+  const targets = CHANNEL_ORDER.filter(chName => {
+    const ch = c.channels[chName];
+    const already = chName === 'Calls' ? !!ch.script : !!ch.sentText;
+    return !already && !aiErrorChannel(ch);
+  });
+
+  btnBusy[allKey] = 'loading';
+  startLoadingCycle(allKey, 'draftAll');
+  render();
+
+  function step(idx){
+    if(idx >= targets.length){
+      stopLoadingCycle(allKey);
+      doneFlags[allKey] = true;
+      btnBusy[allKey] = 'success';
+      render();
+      setTimeout(() => { delete btnBusy[allKey]; render(); if(onDone) onDone(); }, 700);
+      return;
+    }
+    const chName = targets[idx];
+    const isCalls = chName === 'Calls';
+    const type = isCalls ? 'script' : 'draft';
+    const chKey = actionKey(companyId, chName, type);
+    btnBusy[chKey] = 'loading';
+    startLoadingCycle(chKey, type);
+    render();
+    setTimeout(() => {
+      stopLoadingCycle(chKey);
+      const chObj = c.channels[chName];
+      if(isCalls){
+        if(!chObj.script){
+          const tpl = state.templates.find(t => t.channel === 'Calls');
+          if(tpl) chObj.script = tpl.text;
+        }
+      } else if(!chObj.sentText){
+        const tpl = state.templates.find(t => t.channel === chName);
+        if(tpl) chObj.sentText = tpl.text;
+      }
+      doneFlags[chKey] = true;
+      btnBusy[chKey] = 'success';
+      render();
+      setTimeout(() => {
+        delete btnBusy[chKey];
+        step(idx + 1);
+      }, 350);
+    }, LOADING_DURATION);
+  }
+  step(0);
+}
+
+/* Fetch Info and Generate Info are two buttons over the exact same real action:
+   ask window.AI (ai.js) to actually research the company via Groq's web-search-enabled
+   model. No more setTimeout + canned text — this is a real network call. */
+function performInfoAction(companyId, type, onDone){
+  const key = actionKey(companyId, '', type);
+  const otherType = type === 'fetchInfo' ? 'generateInfo' : 'fetchInfo';
+  const otherKey = actionKey(companyId, '', otherType);
+  if(btnBusy[key]) { if(onDone) onDone(); return; }
+
+  const c = state.companies.find(c=>c.id===companyId);
+  btnBusy[key] = 'loading';
+  startLoadingCycle(key, type);
+  delete aiErrorFlags[key];
+  delete aiErrorFlags[otherKey];
+  render();
+
+  window.AI.fetchCompanyInfo(c.name)
+    .then(info => {
+      stopLoadingCycle(key);
+      c.info = info;
+      doneFlags[key] = true;
+      doneFlags[otherKey] = true; // same underlying result, so the other button shows done too
+      btnBusy[key] = 'success';
+      render();
+      setTimeout(() => {
+        delete btnBusy[key];
+        render();
+        if(onDone) onDone();
+      }, 700);
+    })
+    .catch(err => {
+      stopLoadingCycle(key);
+      delete btnBusy[key];
+      aiErrorFlags[key] = (err && err.message) ? err.message : 'AI request failed';
+      // if this was part of an Automate run, don't leave it spinning forever on failure
+      if(automateBusy[companyId]){
+        automateBusy[companyId] = false;
+        delete automateStage[companyId];
+      }
+      render();
+    });
+}
+function runFetchInfoStep(companyId, onDone){
+  performInfoAction(companyId, 'fetchInfo', onDone);
+}
+function runGenerateInfo(companyId){
+  performInfoAction(companyId, 'generateInfo');
+}
+
+let automateBusy = {}; // companyId -> true while the full fetch -> draft -> send chain is running
+let automateStage = {}; // companyId -> human-readable label for which macro-phase Automate is in
+
+function runAutomateAll(companyId){
+  if(automateBusy[companyId]) return;
+  automateBusy[companyId] = true;
+  render();
+
+  function afterInfo(){
+    automateStage[companyId] = 'Drafting messages...';
+    render();
+    runDraftAllSequential(companyId, () => {
+      automateStage[companyId] = 'Sending messages...';
+      render();
+      runSendAllSequential(companyId, () => {
+        automateBusy[companyId] = false;
+        delete automateStage[companyId];
+        render();
+      });
+    });
+  }
+
+  const c = state.companies.find(c=>c.id===companyId);
+  if(c.info){
+    // info was already fetched/generated earlier — no point re-fetching it every time Automate runs
+    afterInfo();
+  } else {
+    automateStage[companyId] = 'Fetching info...';
+    render();
+    runFetchInfoStep(companyId, afterInfo);
+  }
+}
+
+function openInfoTemplatePicker(companyId){
+  pendingModal = { companyId, channel:'', field:'infoTemplatePick' };
+  const infoTemplates = state.templates.filter(t => t.channel === 'Info');
+  document.getElementById('modalTitle').textContent = 'Attach Template';
+  document.getElementById('modalTextSection').style.display = 'none';
+  document.getElementById('modalLinkRow').style.display = 'none';
+  document.getElementById('modalRetryBtn').style.display = 'none';
+  const optionsWrap = document.getElementById('modalOptions');
+  optionsWrap.style.display = '';
+  if(infoTemplates.length === 0){
+    optionsWrap.innerHTML = `<div class="empty-state">No Info templates yet. Add one in the Templates panel.</div>`;
+  } else {
+    optionsWrap.innerHTML = infoTemplates.map(t => `
+      <button class="modal-option" onclick="applyInfoTemplate('${companyId}','${t.id}')">${escAttr(t.name)}</button>
+    `).join("");
+  }
+  document.getElementById('modalOverlay').classList.add('active');
+}
+function applyInfoTemplate(companyId, templateId){
+  const c = state.companies.find(c=>c.id===companyId);
+  if(c){ c.infoTemplateId = templateId; } // just remember which template to use, don't touch c.info
+  closeModal();
+  render();
+}
+function removeInfoTemplate(companyId){
+  const c = state.companies.find(c=>c.id===companyId);
+  if(c){ c.infoTemplateId = null; }
+  render();
+}
+
+function openAttachChoice(companyId, channel){
+  pendingModal = { companyId, channel, field:'attachChoice' };
+  document.getElementById('modalTitle').textContent = `${channel} \u2013 Add Attachment`;
+  document.getElementById('modalTextSection').style.display = 'none';
+  document.getElementById('modalLinkRow').style.display = 'none';
+  document.getElementById('modalRetryBtn').style.display = 'none';
+  const optionsWrap = document.getElementById('modalOptions');
+  optionsWrap.style.display = '';
+  optionsWrap.innerHTML = `
+    <button class="modal-option" onclick="openAttachTemplateList('${companyId}','${channel}')">Use a Template</button>
+    <button class="modal-option" onclick="closeModal(); triggerFilePick('${companyId}','${channel}')">Upload a File</button>
+  `;
+  document.getElementById('modalOverlay').classList.add('active');
+}
+function openAttachTemplateList(companyId, channel){
+  const opts = state.templates;
+  document.getElementById('modalTitle').textContent = `${channel} \u2013 Choose Template`;
+  const optionsWrap = document.getElementById('modalOptions');
+  if(opts.length === 0){
+    optionsWrap.innerHTML = `<div class="empty-state">No templates yet.</div>`;
+  } else {
+    optionsWrap.innerHTML = opts.map(t => `
+      <button class="modal-option" onclick="applyAttachTemplate('${companyId}','${channel}','${t.id}')">${escAttr(t.name)} <span class="template-channel-tag" style="margin-left:6px;">${escAttr(t.channel)}</span></button>
+    `).join("");
+  }
+}
+function applyAttachTemplate(companyId, channel, templateId){
+  const c = state.companies.find(c=>c.id===companyId);
+  const t = state.templates.find(t=>t.id===templateId);
+  if(c && t){ c.channels[channel].attachments = [`Template: ${t.name}`]; }
+  closeModal();
+  render();
+}
+
+function triggerFilePick(companyId, channel){
+  document.getElementById(`fileinput-${companyId}-${channel}`).click();
+}
+function handleFileSelect(event, companyId, channel){
+  const c = state.companies.find(c=>c.id===companyId);
+  const file = (event.target.files || [])[0];
+  if(file) c.channels[channel].attachments = [file.name];
+  render();
+}
+function removeAttachment(companyId, channel, idx){
+  const c = state.companies.find(c=>c.id===companyId);
+  c.channels[channel].attachments.splice(idx,1);
+  render();
+}
+
+/* ---------- modal: handles both option-lists and free text ---------- */
+function openModal(companyId, channel, field){
+  pendingModal = { companyId, channel, field };
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels[channel];
+
+  const optionsWrap = document.getElementById('modalOptions');
+  const textSection = document.getElementById('modalTextSection');
+  const textArea = document.getElementById('modalTextArea');
+  const textSubtitle = document.getElementById('modalTextSubtitle');
+  const textSection2 = document.getElementById('modalTextSection2');
+  const textArea2 = document.getElementById('modalTextArea2');
+  const textSubtitle2 = document.getElementById('modalTextSubtitle2');
+  const saveBtn = document.getElementById('modalSaveBtn');
+  const retryBtn = document.getElementById('modalRetryBtn');
+  const linkRow = document.getElementById('modalLinkRow');
+  const linkInput = document.getElementById('modalLinkInput');
+  const linkOpen = document.getElementById('modalLinkOpen');
+
+  retryBtn.style.display = "none";
+  textSection2.style.display = "none";
+  linkRow.style.display = "none";
+
+  if(field === 'status'){
+    document.getElementById('modalTitle').textContent = `${channel} \u2013 Status`;
+    optionsWrap.style.display = "";
+    optionsWrap.innerHTML = STATUS_OPTS.map(opt => `
+      <button class="modal-option ${opt===ch.status ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
+    `).join("");
+    textSection.style.display = "none";
+
+  } else if(field === 'connection'){
+    document.getElementById('modalTitle').textContent = `${channel} \u2013 Connection`;
+    optionsWrap.style.display = "";
+    optionsWrap.innerHTML = CONNECTION_OPTS.map(opt => `
+      <button class="modal-option ${opt===ch.connection ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
+    `).join("");
+    textSection.style.display = "none";
+
+  } else if(field === 'ai'){
+    const sendKey = actionKey(companyId, channel, 'send');
+    const contactBlocked = channel !== 'Calls' && contactErrorFlags[sendKey];
+    document.getElementById('modalTitle').textContent = contactBlocked ? `${channel} \u2013 Error` : `${channel} \u2013 AI`;
+    optionsWrap.style.display = "";
+    optionsWrap.innerHTML = AI_OPTS.map(opt => `
+      <button class="modal-option ${opt===ch.ai ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
+    `).join("");
+    textSection.style.display = "block";
+    textSubtitle.textContent = "API Input";
+    textArea.value = ch.aiInput || "";
+    textArea.placeholder = "Paste what was sent to the AI...";
+    textSection2.style.display = "block";
+    if(contactBlocked){
+      // this is the whole point of the AI Status pill doubling as an error surface:
+      // clicking it tells you exactly what's blocking Send, in plain language
+      textSubtitle2.textContent = "Why it can't send";
+      textArea2.value = contactMissingTitle(channel);
+      textArea2.placeholder = "";
+    } else {
+      textSubtitle2.textContent = "API Output";
+      textArea2.value = ch.aiOutput || "";
+      textArea2.placeholder = "Paste what it returned...";
+    }
+    saveBtn.onclick = () => {
+      updateField(companyId, channel, 'aiInput', textArea.value);
+      updateField(companyId, channel, 'aiOutput', textArea2.value);
+      closeModal();
+    };
+    retryBtn.style.display = "";
+    retryBtn.onclick = () => {
+      const target = c.channels[channel];
+      target.aiInput = textArea.value;
+      target.aiOutput = "";
+      target.ai = "In Progress";
+      closeModal();
+      render();
+    };
+
+  } else if(field === 'response'){
+    document.getElementById('modalTitle').textContent = `${channel} \u2013 Response`;
+    optionsWrap.style.display = "";
+    optionsWrap.innerHTML = RESPONSE_OPTS.map(opt => `
+      <button class="modal-option ${opt===ch.response ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
+    `).join("");
+    textSection.style.display = "block";
+    textSubtitle.textContent = "Full response text";
+    textArea.value = ch.responseText || "";
+    textArea.placeholder = "Paste or type what they said...";
+    linkRow.style.display = "block";
+    linkInput.value = ch.responseLink || "";
+    const syncLinkOpen = () => {
+      const url = linkInput.value.trim();
+      linkOpen.href = url ? (/^https?:\/\//i.test(url) ? url : `https://${url}`) : "#";
+      linkOpen.classList.toggle('disabled', !url);
+    };
+    syncLinkOpen();
+    linkInput.oninput = syncLinkOpen;
+    saveBtn.onclick = () => {
+      updateField(companyId, channel, 'responseText', textArea.value);
+      updateField(companyId, channel, 'responseLink', linkInput.value.trim());
+      closeModal();
+    };
+
+  } else if(field === 'info'){
+    document.getElementById('modalTitle').textContent = "";
+    optionsWrap.style.display = "none";
+    textSection.style.display = "block";
+    textSubtitle.textContent = "";
+    textArea.value = c.info || "";
+    textArea.placeholder = "Type here...";
+    saveBtn.onclick = () => {
+      c.info = textArea.value;
+      closeModal();
+      render();
+    };
+
+  } else if(field === 'script'){
+    document.getElementById('modalTitle').textContent = `${channel} \u2013 Call Script`;
+    optionsWrap.style.display = "none";
+    textSection.style.display = "block";
+    textSubtitle.textContent = "What to know / say on the call";
+    textArea.value = ch.script || "";
+    textArea.placeholder = "Company background, talking points, questions to ask...";
+    saveBtn.onclick = () => {
+      updateField(companyId, channel, 'script', textArea.value);
+      closeModal();
+    };
+
+  } else if(field === 'sentText'){
+    document.getElementById('modalTitle').textContent = `${channel} \u2013 Sent Text`;
+    optionsWrap.style.display = "none";
+    textSection.style.display = "block";
+    textSubtitle.textContent = "What you sent";
+    textArea.value = ch.sentText || "";
+    textArea.placeholder = "Type the message you sent...";
+    saveBtn.onclick = () => {
+      updateField(companyId, channel, 'sentText', textArea.value);
+      closeModal();
+    };
+  }
+
+  document.getElementById('modalOverlay').classList.add('active');
+}
+function selectOption(value){
+  if(!pendingModal) return;
+  updateField(pendingModal.companyId, pendingModal.channel, pendingModal.field, value);
+  closeModal();
+}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.remove('active');
+  pendingModal = null;
+}
+document.getElementById('modalOverlay').addEventListener('click', (e)=>{
+  if(e.target.id === 'modalOverlay') closeModal();
+});
+
+document.getElementById('addCompanyBtn').addEventListener('click', addCompany);
+document.getElementById('newCompanyInput').addEventListener('keydown', (e)=>{ if(e.key === 'Enter') addCompany(); });
+document.getElementById('addTemplateBtn').addEventListener('click', addTemplate);
+document.getElementById('templatesBar').addEventListener('click', ()=>{
+  templatesOpen = !templatesOpen;
+  document.getElementById('templatesPanel').classList.toggle('open', templatesOpen);
+  document.getElementById('templatesChevron').classList.toggle('open', templatesOpen);
+});
+
+function addCompany(){
+  const input = document.getElementById('newCompanyInput');
+  const name = input.value.trim();
+  if(!name) return;
+  const id = 'c' + (nextId++) + '-' + name.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+  const channels = {};
+  CHANNEL_ORDER.forEach(ch => {
+    channels[ch] = blankChannel(ch);
+    const tpl = state.templates.find(t => t.channel === ch);
+    if(tpl) channels[ch].attachments.push(`Template: ${tpl.name}`);
+  });
+  const infoTpl = state.templates.find(t => t.channel === 'Info');
+  state.companies.push({ id, name, expanded:true, info:"", infoTemplateId: infoTpl ? infoTpl.id : null, channels });
+  input.value = "";
+  render();
+}
+
+/* ---------- resizable columns: drag the handle on the right edge of any header ---------- */
+(function initColumnResize(){
+  let activeTh = null, startX = 0, startWidth = 0, activeHandle = null;
+  document.querySelectorAll('#ledgerTable thead th').forEach(th => {
+    const handle = th.querySelector('.col-resizer');
+    if(!handle) return;
+    handle.addEventListener('mousedown', (e) => {
+      e.preventDefault();
+      activeTh = th;
+      activeHandle = handle;
+      startX = e.clientX;
+      startWidth = th.getBoundingClientRect().width;
+      handle.classList.add('resizing');
+      document.body.style.cursor = 'col-resize';
+    });
+  });
+  document.addEventListener('mousemove', (e) => {
+    if(!activeTh) return;
+    const newWidth = Math.max(40, startWidth + (e.clientX - startX));
+    activeTh.style.width = newWidth + 'px';
+  });
+  document.addEventListener('mouseup', () => {
+    if(!activeTh) return;
+    activeHandle.classList.remove('resizing');
+    activeTh = null; activeHandle = null;
+    document.body.style.cursor = '';
+  });
+})();
+
+render();
+</script>
+</body>
+</html>
