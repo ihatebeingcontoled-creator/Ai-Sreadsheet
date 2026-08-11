@@ -453,15 +453,19 @@ let nextTemplateId = 6;
 let templatesOpen = false;
 let pendingModal = null; // {companyId, channel, field}
 
-// restore everything from last time, if there is anything saved
-(function restoreSaved(){
-  const saved = window.AppStorage && window.AppStorage.load();
+// restore everything from last time, if there is anything saved in D1.
+// This now genuinely awaits the network round-trip to your Worker/D1 before
+// the app renders — no placeholder/fake state is shown in the meantime.
+let appReady = false;
+async function restoreSaved(){
+  const saved = window.AppStorage ? await window.AppStorage.load() : null;
   if(saved && saved.state){
     state = saved.state;
     nextId = saved.nextId || nextId;
     nextTemplateId = saved.nextTemplateId || nextTemplateId;
   }
-})();
+  appReady = true;
+}
 
 function statusPillClass(v){
   if(v==="Sent"||v==="Called") return "pill-green";
@@ -1470,7 +1474,7 @@ function addCompany(){
   });
 })();
 
-render();
+restoreSaved().then(render);
 </script>
 </body>
 </html>
