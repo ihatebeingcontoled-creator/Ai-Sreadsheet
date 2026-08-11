@@ -7,6 +7,7 @@
  *
  * Services today:
  *   info    -> powers Fetch Info / Generate Info (Groq, real, used by ai.js)
+ *   draft   -> powers Draft / Script / Draft All (Groq, real, used by ai.js)
  *   email   -> reserved for a future real email-sending integration
  *   calling -> reserved for a future real cold-calling integration
  *
@@ -34,6 +35,15 @@
       short: "Info",
       wired: true,
       desc: "Powers \u201CFetch Info\u201D / \u201CGenerate Info\u201D \u2014 real company research via Groq's web-search model. Free key at console.groq.com/keys.",
+      placeholder: "gsk_...",
+    },
+    {
+      id: "draft",
+      label: "Drafting AI",
+      icon: "\u270F\uFE0F",
+      short: "Draft",
+      wired: true,
+      desc: "Powers \u201CDraft\u201D / \u201CScript\u201D / \u201CDraft All\u201D \u2014 writes the actual email/iMessage/Viber/call-script text from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
     },
     {
