@@ -4,7 +4,7 @@
  * Cloudflare D1 database through a Cloudflare Pages Function that lives
  * right in this same repo, at functions/api/state.js. Because it's a
  * Pages Function (not a separately-deployed Worker), it's served from
- * the SAME domain as this site — so there's no API_BASE URL to configure,
+ * the SAME domain as this site — so there's no API_BASE URL, no secret,
  * no wrangler, and no terminal. Deploying this site (via GitHub -> Pages)
  * deploys the API too.
  *
@@ -12,11 +12,6 @@
  * blank for a split second on load — it is never the source of truth.
  * Every save round-trips to D1. If that write fails, you will SEE it (a
  * red "Save failed" pill, bottom-left) instead of a silent/fake success.
- *
- * SETUP: set APP_SECRET below to any password you make up, then set the
- * SAME value as an environment variable named APP_SECRET on your
- * Cloudflare Pages project (Settings -> Environment variables). See the
- * setup guide for the exact steps.
  *
  * index.html talks to this through:
  *   window.AppStorage.load()   -> Promise<{state,nextId,nextTemplateId}|null>
@@ -26,11 +21,6 @@
  */
 
 (function () {
-  // ---- set this to any password you make up, then set the SAME value  ----
-  // ---- as the APP_SECRET environment variable on your Pages project.  ----
-  const APP_SECRET = "PASTE-A-PASSWORD-HERE-AND-MATCH-IT-IN-CLOUDFLARE-PAGES";
-  // --------------------------------------------------------------------
-
   // Same-origin: the API lives at /api/state on this exact site, served
   // by functions/api/state.js. No separate host to configure.
   const API_BASE = "";
@@ -77,15 +67,7 @@
       el.textContent = "\u26A0\uFE0F Save FAILED \u2014 not stored in D1" + (detail ? " (" + detail + ")" : "");
       el.style.borderColor = "rgba(217,100,91,.4)";
       el.style.color = "#d9645b";
-    } else if (kind === "unconfigured") {
-      el.textContent = "\u26A0\uFE0F APP_SECRET not set \u2014 edit storage.js";
-      el.style.borderColor = "rgba(217,100,91,.4)";
-      el.style.color = "#d9645b";
     }
-  }
-
-  function configured() {
-    return APP_SECRET.indexOf("PASTE-A-PASSWORD-HERE") === -1;
   }
 
   /* ---------- local cache (instant paint / offline fallback only) ---------- */
@@ -109,21 +91,9 @@
   /* ---------- real D1 load/save via the Pages Function ---------- */
 
   async function load() {
-    if (!configured()) {
-      setStatus("unconfigured");
-      console.error(
-        "storage.js: APP_SECRET is not set. Data is NOT being saved to D1 yet. " +
-          "Edit the APP_SECRET constant at the top of storage.js and set the matching " +
-          "environment variable on your Cloudflare Pages project."
-      );
-      return readCache();
-    }
-
     setStatus("loading");
     try {
-      const res = await fetch(`${API_BASE}/api/state?id=${encodeURIComponent(RECORD_ID)}`, {
-        headers: { "X-App-Secret": APP_SECRET },
-      });
+      const res = await fetch(`${API_BASE}/api/state?id=${encodeURIComponent(RECORD_ID)}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const json = await res.json();
       if (json && json.data) {
@@ -147,10 +117,6 @@
   function save(data) {
     pendingData = data;
     writeCache(data); // instant local cache
-    if (!configured()) {
-      setStatus("unconfigured");
-      return;
-    }
     setStatus("saving");
     clearTimeout(saveTimer);
     clearTimeout(retryTimer);
@@ -163,7 +129,7 @@
     try {
       const res = await fetch(`${API_BASE}/api/state`, {
         method: "POST",
-        headers: { "Content-Type": "application/json", "X-App-Secret": APP_SECRET },
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: RECORD_ID, data: toSend }),
       });
       if (!res.ok) {
@@ -181,11 +147,9 @@
 
   async function clear() {
     localStorage.removeItem(CACHE_KEY);
-    if (!configured()) return;
     try {
       const res = await fetch(`${API_BASE}/api/state?id=${encodeURIComponent(RECORD_ID)}`, {
         method: "DELETE",
-        headers: { "X-App-Secret": APP_SECRET },
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
     } catch (e) {
