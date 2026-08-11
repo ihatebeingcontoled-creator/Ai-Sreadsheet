@@ -6,14 +6,23 @@
  * actually used).
  *
  * Services today:
- *   info    -> powers Fetch Info / Generate Info (Groq, real, used by ai.js)
- *   draft   -> powers Draft / Script / Draft All (Groq, real, used by ai.js)
- *   email   -> reserved for a future real email-sending integration
- *   calling -> reserved for a future real cold-calling integration
+ *   info         -> powers Fetch Info / Generate Info (Groq, real, used by ai.js)
+ *   draftEmail   -> powers Draft for the Email channel (Groq, real, used by ai.js)
+ *   draftIMessage-> powers Draft for the iMessage/SMS channel (Groq, real, used by ai.js)
+ *   draftViber   -> powers Draft for the Viber channel (Groq, real, used by ai.js)
+ *   draftCalls   -> powers Script for the Calls channel (Groq, real, used by ai.js)
+ *   email        -> reserved for a future real email-sending integration
+ *   calling      -> reserved for a future real cold-calling integration
  *
- * Email and Calls aren't wired to a real provider yet — this just gives you
- * a place to store and label those keys now, so the top bar and the switch
- * are already there once that gets built.
+ * Drafting used to be one shared "draft" key for every channel. It's now
+ * split one-per-channel, same pattern as the email/imessage/viber/calling
+ * *sending* keys below — so a channel can run out of credit, get swapped
+ * to a different key, or use an entirely different Groq account, without
+ * touching the others.
+ *
+ * Email and Calls sending aren't wired to a real provider yet — this just
+ * gives you a place to store and label those keys now, so the top bar and
+ * the switch are already there once that gets built.
  *
  * Everything is stored only in this browser's localStorage.
  *
@@ -26,6 +35,7 @@
 (function () {
   const STORE_KEY = "outreachLedger_apiKeys_v1";
   const OLD_GROQ_KEY = "outreachLedger_groqApiKey"; // ai.js's old single-key storage
+  const OLD_DRAFT_SERVICE_ID = "draft"; // pre-split: one shared drafting key for every channel
 
   const SERVICES = [
     {
@@ -38,12 +48,39 @@
       placeholder: "gsk_...",
     },
     {
-      id: "draft",
-      label: "Drafting AI",
+      id: "draftEmail",
+      label: "Drafting AI \u2014 Email",
       icon: "\u270F\uFE0F",
-      short: "Draft",
+      short: "Draft Email",
       wired: true,
-      desc: "Powers \u201CDraft\u201D / \u201CScript\u201D / \u201CDraft All\u201D \u2014 writes the actual email/iMessage/Viber/call-script text from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
+      desc: "Powers \u201CDraft\u201D for the Email channel (and Email's share of \u201CDraft All\u201D) \u2014 writes the email body from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
+      placeholder: "gsk_...",
+    },
+    {
+      id: "draftIMessage",
+      label: "Drafting AI \u2014 iMessage/SMS",
+      icon: "\u270F\uFE0F",
+      short: "Draft SMS",
+      wired: true,
+      desc: "Powers \u201CDraft\u201D for the iMessage/SMS channel (and its share of \u201CDraft All\u201D) \u2014 writes the text message from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
+      placeholder: "gsk_...",
+    },
+    {
+      id: "draftViber",
+      label: "Drafting AI \u2014 Viber",
+      icon: "\u270F\uFE0F",
+      short: "Draft Viber",
+      wired: true,
+      desc: "Powers \u201CDraft\u201D for the Viber channel (and its share of \u201CDraft All\u201D) \u2014 writes the Viber message from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
+      placeholder: "gsk_...",
+    },
+    {
+      id: "draftCalls",
+      label: "Drafting AI \u2014 Calls",
+      icon: "\u270F\uFE0F",
+      short: "Draft Calls",
+      wired: true,
+      desc: "Powers \u201CScript\u201D for the Calls channel (and its share of \u201CDraft All\u201D) \u2014 writes the cold-call script from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
     },
     {
@@ -105,10 +142,34 @@
       SERVICES.forEach((sv) => {
         if (parsed[sv.id]) s[sv.id] = parsed[sv.id];
       });
+      migrateSharedDraftKey(s, parsed);
       return s;
     } catch (e) {
       return defaultStore();
     }
+  }
+
+  // one-time migration from the old shared "draft" service (one key used for every
+  // channel's drafting) to the new per-channel draftEmail/draftIMessage/draftViber/draftCalls
+  // services. Copies the old key's keys/active choice into each new service that doesn't
+  // already have its own keys, so nothing that was already working goes dark after the
+  // split — people can then swap individual channels to their own key whenever they want.
+  function migrateSharedDraftKey(s, parsed) {
+    const old = parsed && parsed[OLD_DRAFT_SERVICE_ID];
+    if (!old || !old.keys || !old.keys.length) return;
+    let changed = false;
+    const oldActiveIdx = old.keys.findIndex((k) => k.id === old.activeId);
+    ["draftEmail", "draftIMessage", "draftViber", "draftCalls"].forEach((newId) => {
+      if (!s[newId] || s[newId].keys.length) return; // already has its own keys — leave it alone
+      s[newId].keys = old.keys.map((k) => ({
+        id: "k" + Date.now() + Math.floor(Math.random() * 1000) + Math.floor(Math.random() * 1000),
+        label: k.label,
+        value: k.value,
+      }));
+      s[newId].activeId = s[newId].keys[oldActiveIdx >= 0 ? oldActiveIdx : 0].id;
+      changed = true;
+    });
+    if (changed) saveStore(s);
   }
 
   // one-time migration from ai.js's old single Groq key, if present
