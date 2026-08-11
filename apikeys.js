@@ -43,6 +43,7 @@
       label: "Info Research",
       icon: "\uD83D\uDD0D",
       short: "Info",
+      group: "draft",
       wired: true,
       desc: "Powers \u201CFetch Info\u201D / \u201CGenerate Info\u201D \u2014 real company research via Groq's web-search model. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
@@ -52,6 +53,7 @@
       label: "Drafting AI \u2014 Email",
       icon: "\u270F\uFE0F",
       short: "Draft Email",
+      group: "draft",
       wired: true,
       desc: "Powers \u201CDraft\u201D for the Email channel (and Email's share of \u201CDraft All\u201D) \u2014 writes the email body from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
@@ -61,6 +63,7 @@
       label: "Send Email",
       icon: "\uD83D\uDCE7",
       short: "Send Email",
+      group: "send",
       wired: false,
       desc: "Heads up: this pill is a leftover key slot and isn't what actually powers Send anymore \u2014 real Gmail sending is now configured server-side in Cloudflare (see functions/api/send-email.js), not with a key stored here. This pill will keep showing a red X even though Send actually works; ignore it, or ask to have it removed from the bar.",
       placeholder: "API key...",
@@ -70,6 +73,7 @@
       label: "Drafting AI \u2014 iMessage/SMS",
       icon: "\u270F\uFE0F",
       short: "Draft SMS",
+      group: "draft",
       wired: true,
       desc: "Powers \u201CDraft\u201D for the iMessage/SMS channel (and its share of \u201CDraft All\u201D) \u2014 writes the text message from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
@@ -79,6 +83,7 @@
       label: "iMessage",
       icon: "\uD83D\uDCAC",
       short: "iMsg",
+      group: "send",
       wired: false,
       desc: "For automated iMessage sending. Not connected to a real provider yet \u2014 sending is still simulated \u2014 but you can store and label keys here so they're ready.",
       placeholder: "API key...",
@@ -88,15 +93,17 @@
       label: "Drafting AI \u2014 Viber",
       icon: "\u270F\uFE0F",
       short: "Draft Viber",
+      group: "draft",
       wired: true,
       desc: "Powers \u201CDraft\u201D for the Viber channel (and its share of \u201CDraft All\u201D) \u2014 writes the Viber message from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
     },
     {
       id: "viber",
-      label: "Viber",
+      label: "Send Viber",
       icon: "\uD83D\uDCF1",
-      short: "Viber",
+      short: "Send Viber",
+      group: "send",
       wired: false,
       desc: "For automated Viber sending. Not connected to a real provider yet \u2014 sending is still simulated \u2014 but you can store and label keys here so they're ready.",
       placeholder: "API key...",
@@ -106,15 +113,17 @@
       label: "Drafting AI \u2014 Calls",
       icon: "\u270F\uFE0F",
       short: "Draft Calls",
+      group: "draft",
       wired: true,
       desc: "Powers \u201CScript\u201D for the Calls channel (and its share of \u201CDraft All\u201D) \u2014 writes the cold-call script from the company info plus the attached template, via Groq. Free key at console.groq.com/keys.",
       placeholder: "gsk_...",
     },
     {
       id: "calling",
-      label: "Cold Calling",
+      label: "Send Calls",
       icon: "\uD83D\uDCDE",
-      short: "Calls",
+      short: "Send Calls",
+      group: "send",
       wired: false,
       desc: "For automated cold calling. Not connected to a real provider yet \u2014 calling is still simulated \u2014 but you can store and label keys here so they're ready.",
       placeholder: "API key...",
@@ -283,14 +292,14 @@
     const slot = document.getElementById("apiKeysBarSlot");
     if (slot) {
       bar.style.cssText = `
-        display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; align-items:flex-start;
+        display:flex; flex-direction:column; gap:9px; align-items:flex-end;
         max-width:100%;
       `;
       slot.appendChild(bar);
     } else {
       bar.style.cssText = `
         position:fixed; top:14px; right:14px; z-index:999;
-        display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; max-width:360px;
+        display:flex; flex-direction:column; gap:9px; align-items:flex-end; max-width:360px;
       `;
       document.body.appendChild(bar);
     }
@@ -301,6 +310,15 @@
     const bar = document.getElementById("apiKeysBar");
     if (!bar) return;
     bar.innerHTML = "";
+
+    // two forced rows — drafts on top, sends underneath — regardless of
+    // available width, so they never interleave on a wide screen. On a
+    // narrow/mobile screen each row still just wraps normally within itself.
+    const draftRow = document.createElement("div");
+    draftRow.style.cssText = `display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; width:100%;`;
+    const sendRow = document.createElement("div");
+    sendRow.style.cssText = `display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; width:100%;`;
+
     SERVICES.forEach((sv) => {
       const ok = hasActiveKey(sv.id);
       const btn = document.createElement("button");
@@ -314,8 +332,11 @@
         padding:9px 16px; border-radius:24px; cursor:pointer; white-space:nowrap;
       `;
       btn.onclick = () => openManager(sv.id);
-      bar.appendChild(btn);
+      (sv.group === "send" ? sendRow : draftRow).appendChild(btn);
     });
+
+    bar.appendChild(draftRow);
+    bar.appendChild(sendRow);
   }
 
   /* ---------- management modal ---------- */
