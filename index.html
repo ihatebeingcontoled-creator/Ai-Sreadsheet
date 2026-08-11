@@ -319,8 +319,13 @@
 
 <div class="frame-bar"></div>
 <header>
-  <div class="eyebrow">Cold Outreach / Ledger</div>
-  <h1>Outreach Tracker</h1>
+  <div style="display:flex; align-items:flex-start; justify-content:space-between; gap:14px; flex-wrap:wrap;">
+    <div>
+      <div class="eyebrow">Cold Outreach / Ledger</div>
+      <h1>Outreach Tracker</h1>
+    </div>
+    <div id="apiKeysBarSlot"></div>
+  </div>
   <div class="stats-row" id="statsRow"></div>
 </header>
 
@@ -408,6 +413,7 @@
 </div>
 
 <script src="storage.js"></script>
+<script src="apikeys.js"></script>
 <script src="ai.js"></script>
 <script>
 const CHANNEL_ORDER = ["Email","iMessage","Viber","Calls"];
@@ -808,9 +814,14 @@ const STAGE_MESSAGES = {
   draft: ["Gathering context...", "Sending to API...", "Waiting for response...", "Formatting draft..."],
   draftAll: ["Gathering context...", "Sending to API...", "Waiting for response...", "Formatting drafts..."],
   script: ["Gathering context...", "Sending to API...", "Waiting for response...", "Writing script..."],
-  fetchInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
-  fetchAllInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
-  generateInfo: ["Searching the web...", "Sending to API...", "Waiting for response...", "Compiling summary..."],
+};
+// fetchInfo/generateInfo/fetchAllInfo are real network calls to Groq (see ai.js) with no
+// visibility into intermediate server-side steps, so instead of faking a multi-stage
+// progression we show one honest label for as long as the real request is actually pending.
+const REAL_AI_LOADING_LABEL = {
+  fetchInfo: "Contacting Groq...",
+  fetchAllInfo: "Contacting Groq...",
+  generateInfo: "Contacting Groq...",
 };
 let loadingStage = {}; // key -> current stage index
 let loadingIntervals = {}; // key -> interval id
@@ -842,7 +853,7 @@ function renderActionBtn(key, type, label, doneLabel, isDone, hasError, onClickA
   const busy = btnBusy[key];
   if(busy === 'loading'){
     const stages = STAGE_MESSAGES[type];
-    const text = stages ? stages[loadingStage[key] || 0] : "Loading...";
+    const text = stages ? stages[loadingStage[key] || 0] : (REAL_AI_LOADING_LABEL[type] || "Loading...");
     return `<button class="action-btn loading" disabled><span class="btn-spinner"></span>${text}</button>`;
   }
   if(busy === 'success'){
