@@ -677,6 +677,16 @@ function escAttr(s){
   return (s||"").replace(/"/g,'&quot;');
 }
 
+// Truncates an info preview string to `max` characters, appending "..." if
+// it was cut short. Used only for the little preview button label in the
+// ledger rows — clicking that button always opens the full, untruncated
+// text in the modal (see openModal's 'info' field), so nothing is ever
+// actually hidden, just not shown inline until you click.
+function truncateInfoPreview(text, max){
+  if(!text) return "";
+  return text.length > max ? text.slice(0, max) + "..." : text;
+}
+
 function updateTemplate(id, field, value){
   const t = state.templates.find(t=>t.id===id);
   t[field] = value;
@@ -744,7 +754,7 @@ function renderBody(){
               ${renderActionBtn(actionKey(company.id,'','generateInfo'), 'generateInfo', '✨ Generate Info', '\u2705 Generated', !!company.info, aiErrorFlags[actionKey(company.id,'','generateInfo')], `runGenerateInfo('${company.id}')`)}
             </div>
           ` : `
-            <button class="info-preview-btn ${companyInfoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')">${companyInfoPreview ? escAttr(companyInfoPreview) : 'No info yet'}</button>
+            <button class="info-preview-btn ${companyInfoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')" title="${escAttr(companyInfoPreview)}">${companyInfoPreview ? escAttr(truncateInfoPreview(companyInfoPreview, 10)) : 'No info yet'}</button>
           `}
         </td>
       </tr>
@@ -796,7 +806,7 @@ function renderBody(){
           <td><input class="cell-input" value="${ch.address}" placeholder="@..." onchange="updateField('${company.id}','${chName}','address',this.value)" /></td>
           ${chIdx === 0 ? `
           <td class="info-cell" rowspan="${CHANNEL_ORDER.length}">
-            <button class="info-preview-btn ${infoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')">${infoPreview ? escAttr(infoPreview) : 'No info yet'}</button>
+            <button class="info-preview-btn ${infoPreview?'':'empty'}" onclick="openModal('${company.id}','','info')" title="${escAttr(infoPreview)}">${infoPreview ? escAttr(truncateInfoPreview(infoPreview, 30)) : 'No info yet'}</button>
           </td>
           ` : ``}
         </tr>
@@ -1176,6 +1186,53 @@ function performDraftAction(companyId, chName, opts){
     });
 }
 
+/* ---------- auto-fill Number/Address from the generated Info text ----------
+   After a real Fetch/Generate Info result comes back, scan it for an email
+   address and a phone number and drop them into every channel's Number and
+   Address fields (Email, iMessage, Viber, Calls) — but only into fields
+   that are still empty, so it never overwrites something you typed in by
+   hand. */
+function extractEmailFromInfo(text){
+  if(!text) return "";
+  const m = text.match(/[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/);
+  return m ? m[0] : "";
+}
+function extractPhoneFromInfo(text){
+  if(!text) return "";
+  // candidate runs of digits/spaces/dashes/dots/parens, optionally starting with +
+  const matches = text.match(/\(?\+?\d[\d\-.\s()]{6,}\d\)?/g);
+  if(!matches) return "";
+  let best = "";
+  let bestDigits = 0;
+  matches.forEach(m => {
+    const digitCount = (m.match(/\d/g) || []).length;
+    // real phone numbers run roughly 7-15 digits; longer runs are usually
+    // something else (dates, IDs, addresses) that happened to match
+    if(digitCount >= 7 && digitCount <= 15 && digitCount > bestDigits){
+      bestDigits = digitCount;
+      best = m.trim().replace(/\s+/g, ' ');
+    }
+  });
+  return best;
+}
+function applyExtractedContacts(company, infoText){
+  const email = extractEmailFromInfo(infoText);
+  const phone = extractPhoneFromInfo(infoText);
+  if(!email && !phone) return;
+  CHANNEL_ORDER.forEach(chName => {
+    const ch = company.channels[chName];
+    if(!ch) return;
+    if(email && !ch.address.trim()){
+      ch.address = email;
+      delete contactErrorFlags[actionKey(company.id, chName, 'send')];
+    }
+    if(phone && !ch.number.trim()){
+      ch.number = phone;
+      delete contactErrorFlags[actionKey(company.id, chName, 'send')];
+    }
+  });
+}
+
 /* Fetch Info and Generate Info are two buttons over the exact same real action:
    ask window.AI (ai.js) to actually research the company via Groq's web-search-enabled
    model. No more setTimeout + canned text — this is a real network call. */
@@ -1201,6 +1258,7 @@ function performInfoAction(companyId, type, onDone){
     .then(info => {
       stopLoadingCycle(key);
       c.info = info;
+      applyExtractedContacts(c, info);
       doneFlags[key] = true;
       doneFlags[otherKey] = true; // same underlying result, so the other button shows done too
       btnBusy[key] = 'success';
