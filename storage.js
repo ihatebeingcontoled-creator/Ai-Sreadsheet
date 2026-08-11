@@ -1,39 +1,198 @@
-/* storage.js — autosave/restore for the Outreach Ledger.
+/* storage.js — REAL cloud autosave/restore for the Outreach Ledger.
  *
- * Everything (companies, channels, templates, id counters) gets written to
- * this browser's localStorage every time the app re-renders, and restored
- * on load. No server involved — this is purely per-browser persistence.
+ * Everything (companies, channels, templates, id counters) is saved to a
+ * Cloudflare D1 database through a Cloudflare Pages Function that lives
+ * right in this same repo, at functions/api/state.js. Because it's a
+ * Pages Function (not a separately-deployed Worker), it's served from
+ * the SAME domain as this site — so there's no API_BASE URL to configure,
+ * no wrangler, and no terminal. Deploying this site (via GitHub -> Pages)
+ * deploys the API too.
  *
- * index.html talks to this through one global:
- *   window.AppStorage.save(data)
- *   window.AppStorage.load() -> data | null
+ * localStorage is kept ONLY as an instant-paint cache so the page isn't
+ * blank for a split second on load — it is never the source of truth.
+ * Every save round-trips to D1. If that write fails, you will SEE it (a
+ * red "Save failed" pill, bottom-left) instead of a silent/fake success.
+ *
+ * SETUP: set APP_SECRET below to any password you make up, then set the
+ * SAME value as an environment variable named APP_SECRET on your
+ * Cloudflare Pages project (Settings -> Environment variables). See the
+ * setup guide for the exact steps.
+ *
+ * index.html talks to this through:
+ *   window.AppStorage.load()   -> Promise<{state,nextId,nextTemplateId}|null>
+ *   window.AppStorage.save(x)  -> debounced write to D1 (fire-and-forget,
+ *                                  but status is reported via the pill)
+ *   window.AppStorage.clear()  -> deletes the saved row in D1
  */
 
 (function () {
-  const KEY = "outreachLedger_v1";
+  // ---- set this to any password you make up, then set the SAME value  ----
+  // ---- as the APP_SECRET environment variable on your Pages project.  ----
+  const APP_SECRET = "PASTE-A-PASSWORD-HERE-AND-MATCH-IT-IN-CLOUDFLARE-PAGES";
+  // --------------------------------------------------------------------
 
-  function save(data) {
-    try {
-      localStorage.setItem(KEY, JSON.stringify(data));
-    } catch (e) {
-      console.error("Autosave failed:", e);
+  // Same-origin: the API lives at /api/state on this exact site, served
+  // by functions/api/state.js. No separate host to configure.
+  const API_BASE = "";
+
+  const CACHE_KEY = "outreachLedger_v1_cache"; // local instant-paint cache only
+  const RECORD_ID = "default"; // single-user app: one row holds everything
+  const DEBOUNCE_MS = 900;
+  const RETRY_MS = 5000;
+
+  let saveTimer = null;
+  let retryTimer = null;
+  let pendingData = null;
+
+  /* ---------- tiny status pill so failures are never silent ---------- */
+
+  function ensurePill() {
+    let el = document.getElementById("d1SyncPill");
+    if (el) return el;
+    el = document.createElement("div");
+    el.id = "d1SyncPill";
+    el.style.cssText =
+      "position:fixed; left:14px; bottom:14px; z-index:9999; font-family:'IBM Plex Mono',monospace; " +
+      "font-size:11.5px; padding:6px 12px; border-radius:20px; border:1px solid #3a4148; " +
+      "background:#1c2024; color:#98a0a7; box-shadow:0 2px 10px rgba(0,0,0,.3); transition:opacity .2s;";
+    document.body.appendChild(el);
+    return el;
+  }
+
+  function setStatus(kind, detail) {
+    const el = ensurePill();
+    if (kind === "saving") {
+      el.textContent = "\u2601\uFE0F Saving to D1\u2026";
+      el.style.borderColor = "#3a4148";
+      el.style.color = "#98a0a7";
+    } else if (kind === "saved") {
+      el.textContent = "\u2601\uFE0F Saved to D1";
+      el.style.borderColor = "rgba(95,174,123,.35)";
+      el.style.color = "#5fae7b";
+    } else if (kind === "loading") {
+      el.textContent = "\u2601\uFE0F Loading from D1\u2026";
+      el.style.borderColor = "#3a4148";
+      el.style.color = "#98a0a7";
+    } else if (kind === "error") {
+      el.textContent = "\u26A0\uFE0F Save FAILED \u2014 not stored in D1" + (detail ? " (" + detail + ")" : "");
+      el.style.borderColor = "rgba(217,100,91,.4)";
+      el.style.color = "#d9645b";
+    } else if (kind === "unconfigured") {
+      el.textContent = "\u26A0\uFE0F APP_SECRET not set \u2014 edit storage.js";
+      el.style.borderColor = "rgba(217,100,91,.4)";
+      el.style.color = "#d9645b";
     }
   }
 
-  function load() {
+  function configured() {
+    return APP_SECRET.indexOf("PASTE-A-PASSWORD-HERE") === -1;
+  }
+
+  /* ---------- local cache (instant paint / offline fallback only) ---------- */
+
+  function readCache() {
     try {
-      const raw = localStorage.getItem(KEY);
-      if (!raw) return null;
-      return JSON.parse(raw);
+      const raw = localStorage.getItem(CACHE_KEY);
+      return raw ? JSON.parse(raw) : null;
     } catch (e) {
-      console.error("Could not read saved data, starting fresh:", e);
       return null;
     }
   }
-
-  function clear() {
-    localStorage.removeItem(KEY);
+  function writeCache(data) {
+    try {
+      localStorage.setItem(CACHE_KEY, JSON.stringify(data));
+    } catch (e) {
+      /* ignore quota errors — cache is best-effort only */
+    }
   }
 
-  window.AppStorage = { save, load, clear };
+  /* ---------- real D1 load/save via the Pages Function ---------- */
+
+  async function load() {
+    if (!configured()) {
+      setStatus("unconfigured");
+      console.error(
+        "storage.js: APP_SECRET is not set. Data is NOT being saved to D1 yet. " +
+          "Edit the APP_SECRET constant at the top of storage.js and set the matching " +
+          "environment variable on your Cloudflare Pages project."
+      );
+      return readCache();
+    }
+
+    setStatus("loading");
+    try {
+      const res = await fetch(`${API_BASE}/api/state?id=${encodeURIComponent(RECORD_ID)}`, {
+        headers: { "X-App-Secret": APP_SECRET },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const json = await res.json();
+      if (json && json.data) {
+        writeCache(json.data);
+        setStatus("saved");
+        return json.data;
+      }
+      // no row yet in D1 (first-ever run) — nothing to restore
+      setStatus("saved");
+      return null;
+    } catch (e) {
+      console.error("Could not load from D1:", e);
+      setStatus("error", e.message);
+      // fall back to the local cache purely so you don't lose the tab's
+      // last-known state while the API is unreachable — this is clearly
+      // flagged via the pill, not presented as a successful cloud load.
+      return readCache();
+    }
+  }
+
+  function save(data) {
+    pendingData = data;
+    writeCache(data); // instant local cache
+    if (!configured()) {
+      setStatus("unconfigured");
+      return;
+    }
+    setStatus("saving");
+    clearTimeout(saveTimer);
+    clearTimeout(retryTimer);
+    saveTimer = setTimeout(flush, DEBOUNCE_MS);
+  }
+
+  async function flush() {
+    if (pendingData === null) return;
+    const toSend = pendingData;
+    try {
+      const res = await fetch(`${API_BASE}/api/state`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", "X-App-Secret": APP_SECRET },
+        body: JSON.stringify({ id: RECORD_ID, data: toSend }),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`HTTP ${res.status}${text ? " " + text : ""}`);
+      }
+      setStatus("saved");
+    } catch (e) {
+      console.error("Autosave to D1 failed — this data is NOT saved server-side yet:", e);
+      setStatus("error", e.message);
+      // keep retrying rather than quietly dropping the write
+      retryTimer = setTimeout(flush, RETRY_MS);
+    }
+  }
+
+  async function clear() {
+    localStorage.removeItem(CACHE_KEY);
+    if (!configured()) return;
+    try {
+      const res = await fetch(`${API_BASE}/api/state?id=${encodeURIComponent(RECORD_ID)}`, {
+        method: "DELETE",
+        headers: { "X-App-Secret": APP_SECRET },
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    } catch (e) {
+      console.error("Could not clear the D1 record:", e);
+      setStatus("error", e.message);
+    }
+  }
+
+  window.AppStorage = { load, save, clear };
 })();
