@@ -158,6 +158,10 @@
     font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 9px; border-radius:4px;
     border:1px solid transparent; cursor:pointer; white-space:nowrap;
   }
+  .cell-tag{
+    display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 9px; border-radius:4px;
+    border:1px solid transparent; cursor:default; white-space:nowrap;
+  }
   .pill-green{background:var(--green-dim); color:var(--green); border-color:rgba(95,174,123,.3);}
   .pill-red{background:var(--red-dim); color:var(--red); border-color:rgba(217,100,91,.3);}
   .pill-amber{background:var(--amber-dim); color:var(--amber); border-color:rgba(217,164,65,.3);}
@@ -480,13 +484,31 @@ function channelAiDisplay(ch, chName, companyId){
   // the AI Status pill doubles as the place to surface a blocked send (missing number/address)
   const blocked = chName !== 'Calls' && contactErrorFlags[actionKey(companyId, chName, 'send')];
   if(blocked) return { label: "Error", cls: "pill-red" };
-  return { label: ch.ai, cls: aiPillClass(ch.ai) };
+  // read-only: reflects whether a draft/script actually exists, not a manually-set status
+  const hasContent = chName === 'Calls' ? !!ch.script : !!ch.sentText;
+  return hasContent ? { label: "Done!", cls: "pill-green" } : { label: "Uncalled", cls: "pill-grey" };
 }
 function connectionPillClass(v){
   if(v==="Connected") return "pill-green";
   if(v==="Disconnected") return "pill-red";
   if(v==="Connecting...") return "pill-amber";
   return "pill-grey";
+}
+
+// which apikeys.js service each channel's automation would use
+const CHANNEL_SERVICE_ID = { Email: "email", iMessage: "imessage", Viber: "viber", Calls: "calling" };
+function channelConnectionStatus(chName){
+  // read-only: reflects whether a real, active API key is on file for this channel's service —
+  // not something you can toggle by hand
+  const svc = CHANNEL_SERVICE_ID[chName];
+  const connected = svc && window.APIKeys && window.APIKeys.hasActiveKey(svc);
+  return connected ? "Connected" : "Disconnected";
+}
+function channelHasResponse(ch){
+  return !!((ch.responseText && ch.responseText.trim()) || (ch.responseLink && ch.responseLink.trim()));
+}
+function responseDisplay(ch){
+  return channelHasResponse(ch) ? { label: "Replied", cls: "pill-amber" } : { label: "\u2014", cls: "pill-grey" };
 }
 
 function sendErrorChannel(ch){
@@ -557,8 +579,11 @@ function sendAllDone(company){
 function aggregate(company){
   const chans = CHANNEL_ORDER.map(c => company.channels[c]);
   const sent = chans.filter(c => c.status==="Sent" || c.status==="Called").length;
-  const responded = chans.filter(c => c.response!=="\u2014" && c.response!=="No Reply").length;
-  const aiDone = chans.filter(c => c.ai==="Done!").length;
+  const responded = chans.filter(channelHasResponse).length;
+  const aiDone = CHANNEL_ORDER.filter(chName => {
+    const c = company.channels[chName];
+    return chName === 'Calls' ? !!c.script : !!c.sentText;
+  }).length;
   return { sent, responded, aiDone, total: chans.length };
 }
 function uniqueFieldValues(company, field){
@@ -733,16 +758,16 @@ function renderBody(){
             `}
           </td>
           <td>
-            <button class="cell-btn ${statusPillClass(ch.status)}" onclick="openModal('${company.id}','${chName}','status')">${ch.status}</button>
+            <span class="cell-tag ${statusPillClass(ch.status)}" title="Reflects real Send/Call actions \u2013 not editable">${ch.status}</span>
           </td>
           <td>
-            <button class="cell-btn ${responsePillClass(ch.response)}" onclick="openModal('${company.id}','${chName}','response')">${ch.response}</button>
+            <button class="cell-btn ${responseDisplay(ch).cls}" onclick="openModal('${company.id}','${chName}','response')">${responseDisplay(ch).label}</button>
           </td>
           <td>
             <button class="text-preview-btn ${sentPreview?'':'empty'}" onclick="openModal('${company.id}','${chName}','sentText')">${sentPreview ? escAttr(sentPreview) : 'Add sent text...'}</button>
           </td>
           <td><button class="cell-btn ${channelAiDisplay(ch, chName, company.id).cls}" onclick="openModal('${company.id}','${chName}','ai')">${channelAiDisplay(ch, chName, company.id).label}${(ch.aiInput || ch.aiOutput) ? ' •' : ''}</button></td>
-          <td><button class="cell-btn ${connectionPillClass(ch.connection)}" onclick="openModal('${company.id}','${chName}','connection')">${ch.connection}</button></td>
+          <td><span class="cell-tag ${connectionPillClass(channelConnectionStatus(chName))}" title="Reflects whether a real API key is on file \u2013 not editable">${channelConnectionStatus(chName)}</span></td>
           <td>
             <div class="attach-cell">
               ${attachHtml}
@@ -1288,30 +1313,11 @@ function openModal(companyId, channel, field){
   textSection2.style.display = "none";
   linkRow.style.display = "none";
 
-  if(field === 'status'){
-    document.getElementById('modalTitle').textContent = `${channel} \u2013 Status`;
-    optionsWrap.style.display = "";
-    optionsWrap.innerHTML = STATUS_OPTS.map(opt => `
-      <button class="modal-option ${opt===ch.status ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
-    `).join("");
-    textSection.style.display = "none";
-
-  } else if(field === 'connection'){
-    document.getElementById('modalTitle').textContent = `${channel} \u2013 Connection`;
-    optionsWrap.style.display = "";
-    optionsWrap.innerHTML = CONNECTION_OPTS.map(opt => `
-      <button class="modal-option ${opt===ch.connection ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
-    `).join("");
-    textSection.style.display = "none";
-
-  } else if(field === 'ai'){
+  if(field === 'ai'){
     const sendKey = actionKey(companyId, channel, 'send');
     const contactBlocked = channel !== 'Calls' && contactErrorFlags[sendKey];
     document.getElementById('modalTitle').textContent = contactBlocked ? `${channel} \u2013 Error` : `${channel} \u2013 AI`;
-    optionsWrap.style.display = "";
-    optionsWrap.innerHTML = AI_OPTS.map(opt => `
-      <button class="modal-option ${opt===ch.ai ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
-    `).join("");
+    optionsWrap.style.display = "none";
     textSection.style.display = "block";
     textSubtitle.textContent = "API Input";
     textArea.value = ch.aiInput || "";
@@ -1333,22 +1339,10 @@ function openModal(companyId, channel, field){
       updateField(companyId, channel, 'aiOutput', textArea2.value);
       closeModal();
     };
-    retryBtn.style.display = "";
-    retryBtn.onclick = () => {
-      const target = c.channels[channel];
-      target.aiInput = textArea.value;
-      target.aiOutput = "";
-      target.ai = "In Progress";
-      closeModal();
-      render();
-    };
 
   } else if(field === 'response'){
     document.getElementById('modalTitle').textContent = `${channel} \u2013 Response`;
-    optionsWrap.style.display = "";
-    optionsWrap.innerHTML = RESPONSE_OPTS.map(opt => `
-      <button class="modal-option ${opt===ch.response ? 'current':''}" onclick="selectOption('${opt.replace(/'/g,"\\'")}')">${opt}</button>
-    `).join("");
+    optionsWrap.style.display = "none";
     textSection.style.display = "block";
     textSubtitle.textContent = "Full response text";
     textArea.value = ch.responseText || "";
