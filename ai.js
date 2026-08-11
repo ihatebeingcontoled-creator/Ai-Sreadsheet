@@ -21,9 +21,10 @@
  *    reusing the template verbatim. No web search needed here, so a
  *    faster/cheaper model is used.
  *
- * Both API keys are managed by apikeys.js (top-right status bar — the
- * "🔍 Info" and "✏️ Draft" pills). They're stored only in this browser's
- * localStorage and sent only to api.groq.com — never anywhere else.
+ * All API keys are managed by apikeys.js (top-right status bar — the
+ * "🔍 Info" pill, plus one "✏️ Draft ⋯" pill per channel). They're stored
+ * only in this browser's localStorage and sent only to api.groq.com —
+ * never anywhere else.
  *
  * Everything else in index.html talks to this file through two globals:
  *   window.AI.fetchCompanyInfo(companyName) -> Promise<string>
@@ -32,7 +33,14 @@
 
 (function () {
   const INFO_SERVICE_ID = "info";
-  const DRAFT_SERVICE_ID = "draft";
+  // one drafting API key per channel — mirrors the email/imessage/viber/calling split
+  // already used for sending (see CHANNEL_SERVICE_ID in index.html)
+  const CHANNEL_DRAFT_SERVICE = {
+    Email: { id: "draftEmail", icon: "\u270F\uFE0F", short: "Draft Email" },
+    iMessage: { id: "draftIMessage", icon: "\u270F\uFE0F", short: "Draft SMS" },
+    Viber: { id: "draftViber", icon: "\u270F\uFE0F", short: "Draft Viber" },
+    Calls: { id: "draftCalls", icon: "\u270F\uFE0F", short: "Draft Calls" },
+  };
   const GROQ_MODEL = "groq/compound-mini"; // has built-in web search, so it can research a real company
   const GROQ_DRAFT_MODEL = "llama-3.3-70b-versatile"; // plain model, no search tool — just writes the message
   const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
@@ -44,7 +52,22 @@
   // shared low-level caller: posts one user-turn prompt to Groq with the given
   // key + model, and returns the plain-text reply. Both fetchCompanyInfo and
   // fetchDraft build a prompt and hand it to this.
-  async function callGroq(key, model, prompt, notConfiguredService) {
+  //
+  // `debug`, if passed, is an object this function fills in as it goes:
+  //   debug.request  -> the exact JSON body sent to Groq (pretty-printed)
+  //   debug.response -> the raw HTTP status + body Groq sent back, on success
+  //                      OR on failure (network error, 401, 413, anything) —
+  //                      whatever actually happened, not just the friendly
+  //                      Error message. This is what the "Input"/"Output"
+  //                      boxes in the AI modal show, so it's always the real
+  //                      wire traffic, never a hand-typed note.
+  async function callGroq(key, model, prompt, notConfiguredService, debug) {
+    const requestBody = {
+      model,
+      messages: [{ role: "user", content: prompt }],
+    };
+    if (debug) debug.request = JSON.stringify(requestBody, null, 2);
+
     let res;
     try {
       res = await fetch(GROQ_ENDPOINT, {
@@ -53,22 +76,23 @@
           "Content-Type": "application/json",
           Authorization: `Bearer ${key}`,
         },
-        body: JSON.stringify({
-          model,
-          messages: [{ role: "user", content: prompt }],
-        }),
+        body: JSON.stringify(requestBody),
       });
     } catch (networkErr) {
+      if (debug) debug.response = "Network error \u2014 the request never got a response:\n" + networkErr.message;
       throw new Error("Network error reaching Groq: " + networkErr.message);
     }
+
+    const rawText = await res.text().catch(() => "");
+    if (debug) debug.response = `HTTP ${res.status} ${res.statusText}\n\n${rawText}`;
 
     if (!res.ok) {
       let detail = "";
       try {
-        const errJson = await res.json();
+        const errJson = JSON.parse(rawText);
         detail = (errJson.error && errJson.error.message) || JSON.stringify(errJson);
       } catch (e) {
-        detail = await res.text().catch(() => "");
+        detail = rawText;
       }
       if (res.status === 401) {
         throw new Error(
@@ -84,13 +108,18 @@
       throw new Error(`Groq API error ${res.status}: ${detail || "request failed"}`);
     }
 
-    const data = await res.json();
+    let data;
+    try {
+      data = JSON.parse(rawText);
+    } catch (e) {
+      throw new Error("Groq returned a response that wasn't valid JSON.");
+    }
     const text = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
     if (!text) throw new Error("Groq returned an empty response.");
     return text.trim();
   }
 
-  async function fetchCompanyInfo(companyName, researchTemplateText) {
+  async function fetchCompanyInfo(companyName, researchTemplateText, debug) {
     const key = window.APIKeys ? window.APIKeys.getActiveKey(INFO_SERVICE_ID) : "";
     if (!key) {
       if (window.APIKeys) window.APIKeys.openManager(INFO_SERVICE_ID);
@@ -117,7 +146,7 @@
       `Reply in short plain-text lines (no markdown symbols), clearly labeled sections. ` +
       `If you can't find a real business by this name, say so plainly instead of inventing details.`;
 
-    return callGroq(key, GROQ_MODEL, prompt, { icon: "\uD83D\uDD0D", short: "Info" });
+    return callGroq(key, GROQ_MODEL, prompt, { icon: "\uD83D\uDD0D", short: "Info" }, debug);
   }
 
   /* fetchDraft — writes the actual outreach message/call-script text.
@@ -131,12 +160,15 @@
    * Output: plain text — the drafted message body (or, for Calls, the script
    * to read out loud). Never includes a subject line in the body itself.
    */
-  async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }) {
-    const key = window.APIKeys ? window.APIKeys.getActiveKey(DRAFT_SERVICE_ID) : "";
+  async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }, debug) {
+    const svc = CHANNEL_DRAFT_SERVICE[channel];
+    if (!svc) throw new Error(`Unknown channel "${channel}" \u2014 no drafting service configured for it.`);
+
+    const key = window.APIKeys ? window.APIKeys.getActiveKey(svc.id) : "";
     if (!key) {
-      if (window.APIKeys) window.APIKeys.openManager(DRAFT_SERVICE_ID);
+      if (window.APIKeys) window.APIKeys.openManager(svc.id);
       throw new Error(
-        "No Drafting AI API key set yet. Click the \u270F\uFE0F Draft button (top right) to add one."
+        `No ${channel} Drafting AI key set yet. Click the ${svc.icon} ${svc.short} button (top right) to add one.`
       );
     }
 
@@ -175,7 +207,7 @@
     }
 
     const prompt = parts.join("\n\n");
-    return callGroq(key, GROQ_DRAFT_MODEL, prompt, { icon: "\u270F\uFE0F", short: "Draft" });
+    return callGroq(key, GROQ_DRAFT_MODEL, prompt, svc, debug);
   }
 
   window.AI = { isConfigured, fetchCompanyInfo, fetchDraft };
