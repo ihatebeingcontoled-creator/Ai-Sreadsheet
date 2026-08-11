@@ -427,6 +427,7 @@
 <script src="storage.js"></script>
 <script src="apikeys.js"></script>
 <script src="ai.js"></script>
+<script src="email.js"></script>
 <script>
 const CHANNEL_ORDER = ["Email","iMessage","Viber","Calls"];
 const STATUS_OPTS = ["Not Sent","Sent","Called","Uncalled","Ran Out of Credit"];
@@ -575,6 +576,7 @@ function contactMissingTitle(chName){
 }
 let contactErrorFlags = {}; // actionKey(companyId, chName, 'send') -> true while blocked on missing contact info
 let aiErrorFlags = {}; // actionKey(...) -> error message string while a real AI call has failed
+let sendErrorFlags = {}; // actionKey(companyId, chName, 'send') -> error message string while a real Send (Email, via Gmail) has failed
 function companyContactMissing(company){
   return CHANNEL_ORDER.some(chName => {
     if(chName === 'Calls') return false;
@@ -584,7 +586,7 @@ function companyContactMissing(company){
   });
 }
 function companySendError(company){
-  return CHANNEL_ORDER.some(chName => sendErrorChannel(company.channels[chName])) || companyContactMissing(company);
+  return CHANNEL_ORDER.some(chName => sendErrorChannel(company.channels[chName]) || sendErrorFlags[actionKey(company.id,chName,'send')]) || companyContactMissing(company);
 }
 function companyDraftError(company){
   return CHANNEL_ORDER.some(chName => aiErrorChannel(company.channels[chName]));
@@ -804,7 +806,7 @@ function renderBody(){
               ${renderActionBtn(actionKey(company.id,chName,'script'), 'script', '📝 Script', '\u2705 Scripted', !!ch.script, aiErrorFlags[actionKey(company.id,chName,'script')] || aiErrorChannel(ch), `runAction('script','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
             ` : `
               ${renderActionBtn(actionKey(company.id,chName,'draft'), 'draft', '✏️ Draft', '\u2705 Drafted', !!ch.sentText, aiErrorFlags[actionKey(company.id,chName,'draft')] || aiErrorChannel(ch), `runAction('draft','${company.id}','${chName}')`, !company.info, "Fetch or generate company info first")}
-              ${renderActionBtn(actionKey(company.id,chName,'send'), 'send', '📤 Send', '\u2705 Sent', ch.status==='Sent', sendErrorChannel(ch), `runAction('send','${company.id}','${chName}')`, !ch.sentText)}
+              ${renderActionBtn(actionKey(company.id,chName,'send'), 'send', '📤 Send', '\u2705 Sent', ch.status==='Sent', sendErrorFlags[actionKey(company.id,chName,'send')] || sendErrorChannel(ch), `runAction('send','${company.id}','${chName}')`, !ch.sentText)}
             `}
           </td>
           <td>
@@ -974,20 +976,27 @@ function runAction(type, companyId, chName){
     return;
   }
 
+  // send is now a real action too (see performSendAction below) — for the
+  // Email channel it's an actual Gmail API call via /api/send-email; the
+  // other channels still simulate until a real provider is wired up for them.
+  if(type === 'send'){
+    performSendAction(companyId, chName).then(ok => {
+      if(ok){
+        const c = state.companies.find(c=>c.id===companyId);
+        // a successful send clears any stale "Ran out of Credit" AI error on that
+        // channel so it doesn't linger
+        if(c.channels[chName] && c.channels[chName].ai === 'Ran out of Credit'){
+          c.channels[chName].ai = 'Uncalled';
+          c.channels[chName].aiOutput = '';
+          render();
+        }
+      }
+    });
+    return;
+  }
+
   const key = actionKey(companyId, chName, type);
   if(btnBusy[key]) return;
-
-  // guardrail: can't send Email without an address, can't send iMessage/Viber without a number
-  if(type === 'send'){
-    const cGuard = state.companies.find(c=>c.id===companyId);
-    const chGuard = cGuard.channels[chName];
-    if(contactMissingChannel(chGuard, chName)){
-      contactErrorFlags[key] = true;
-      render();
-      return;
-    }
-    delete contactErrorFlags[key];
-  }
 
   btnBusy[key] = 'loading';
   startLoadingCycle(key, type);
@@ -995,21 +1004,11 @@ function runAction(type, companyId, chName){
   setTimeout(() => {
     stopLoadingCycle(key);
     const c = state.companies.find(c=>c.id===companyId);
-    // draft/script/draftAll are handled by performDraftAction / runDraftAllSequential (real AI
-    // calls) above and never reach here anymore — this path is send/sendAll only.
-    if(type === 'send'){
-      markSent(c.channels[chName], chName);
-    } else if(type === 'sendAll'){
+    if(type === 'sendAll'){
       CHANNEL_ORDER.forEach(ch2 => markSent(c.channels[ch2], ch2));
     }
 
-    // a successful action clears any stale error on that channel so it doesn't linger
-    if(chName && c.channels[chName] && c.channels[chName].ai === 'Ran out of Credit'){
-      c.channels[chName].ai = 'Uncalled';
-      c.channels[chName].aiOutput = '';
-    }
-
-    if(type === 'send' || type === 'fetchAllInfo'){
+    if(type === 'fetchAllInfo'){
       doneFlags[key] = true;
     } else if(type === 'sendAll'){
       doneFlags[key] = true;
@@ -1025,6 +1024,80 @@ function runAction(type, companyId, chName){
       render();
     }, 1000);
   }, LOADING_DURATION);
+}
+
+/* performSendAction — the actual "connect the Send button to something real"
+ * step, mirroring performDraftAction's shape. For the Email channel this is
+ * a real Gmail send via email.js -> /api/send-email. For iMessage/Viber/Calls
+ * (no provider wired up yet) it keeps the old simulated delay so the rest of
+ * the UI behaves exactly as before. Returns Promise<boolean> so callers
+ * (runAction, runSendAllSequential) know whether it actually sent.
+ */
+function performSendAction(companyId, chName){
+  const key = actionKey(companyId, chName, 'send');
+  if(btnBusy[key]) return Promise.resolve(false);
+
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels[chName];
+
+  // guardrail: can't send Email without an address, can't send iMessage/Viber without a number
+  if(contactMissingChannel(ch, chName)){
+    contactErrorFlags[key] = true;
+    render();
+    return Promise.resolve(false);
+  }
+  delete contactErrorFlags[key];
+
+  btnBusy[key] = 'loading';
+  startLoadingCycle(key, 'send');
+  delete sendErrorFlags[key];
+  render();
+
+  if(chName === 'Email' && window.EmailSender){
+    const tpl = getChannelTemplate(ch, chName);
+    const fill = (s) => (s || "").replace(/\{\{\s*company\s*\}\}/gi, c.name);
+    const subject = fill(tpl && tpl.subject) || `Message for ${c.name}`;
+
+    return window.EmailSender.sendEmail({ to: ch.address, subject, text: ch.sentText })
+      .then(() => {
+        stopLoadingCycle(key);
+        markSent(ch, chName);
+        doneFlags[key] = true;
+        btnBusy[key] = 'success';
+        render();
+        return new Promise(resolve => {
+          setTimeout(() => {
+            delete btnBusy[key];
+            render();
+            resolve(true);
+          }, 700);
+        });
+      })
+      .catch(err => {
+        stopLoadingCycle(key);
+        delete btnBusy[key];
+        sendErrorFlags[key] = (err && err.message) ? err.message : 'Send failed';
+        render();
+        return false;
+      });
+  }
+
+  // iMessage / Viber / Calls: no real send integration wired up yet — simulate,
+  // same fixed-duration behavior as before this file had real sending.
+  return new Promise(resolve => {
+    setTimeout(() => {
+      stopLoadingCycle(key);
+      markSent(ch, chName);
+      doneFlags[key] = true;
+      btnBusy[key] = 'success';
+      render();
+      setTimeout(() => {
+        delete btnBusy[key];
+        render();
+        resolve(true);
+      }, 1000);
+    }, LOADING_DURATION);
+  });
 }
 
 function sendAll(companyId){
@@ -1075,21 +1148,11 @@ function runSendAllSequential(companyId, onDone){
       return;
     }
     const chName = targets[idx];
-    const chKey = actionKey(companyId, chName, 'send');
-    btnBusy[chKey] = 'loading';
-    startLoadingCycle(chKey, 'send');
-    render();
-    setTimeout(() => {
-      stopLoadingCycle(chKey);
-      markSent(c.channels[chName], chName);
-      doneFlags[chKey] = true;
-      btnBusy[chKey] = 'success';
-      render();
-      setTimeout(() => {
-        delete btnBusy[chKey];
-        step(idx + 1);
-      }, 350);
-    }, LOADING_DURATION);
+    // real send for Email (via performSendAction -> email.js -> /api/send-email),
+    // simulated for the other channels — same helper the single Send button uses
+    performSendAction(companyId, chName).then(() => {
+      step(idx + 1);
+    });
   }
   step(0);
 }
