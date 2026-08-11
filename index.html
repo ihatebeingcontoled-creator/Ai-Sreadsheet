@@ -1474,6 +1474,23 @@ function addCompany(){
   });
 })();
 
+/* ---------- catch-all autosave ----------
+ * render() already saves on structural changes (add/delete/toggle/etc),
+ * but plenty of edits don't go through render() (typing in an input before
+ * blur, the template textareas, modal textareas before you hit Save, etc).
+ * Rather than hunting down every handler, this listens for ANY interaction
+ * anywhere on the page — typing, clicking off a field, changing a value,
+ * clicking anything — and schedules a save every time. window.AppStorage
+ * already debounces (900ms) and coalesces these into one network write,
+ * so this is cheap even on rapid typing. */
+function scheduleAutosave(){
+  if(!appReady) return; // don't push the blank starting state over D1 before restoreSaved() finishes
+  if(window.AppStorage) window.AppStorage.save({ state, nextId, nextTemplateId });
+}
+['input','change','click','focusout'].forEach(evt => {
+  document.addEventListener(evt, scheduleAutosave);
+});
+
 restoreSaved().then(render);
 </script>
 </body>
