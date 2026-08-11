@@ -67,6 +67,13 @@
           "Groq rejected the API key (401). Click the \uD83D\uDD0D Info button (top right) to check or switch it."
         );
       }
+      if (res.status === 413) {
+        throw new Error(
+          "Groq rejected the request as too large (413). This almost always means the saved key has extra " +
+            "text in it (like \"GROQ_API_KEY=\", quotes, or a whole pasted line) instead of just the key. " +
+            "Click the \uD83D\uDD0D Info button (top right) \u2014 it'll flag a key that looks too long."
+        );
+      }
       throw new Error(`Groq API error ${res.status}: ${detail || "request failed"}`);
     }
 
