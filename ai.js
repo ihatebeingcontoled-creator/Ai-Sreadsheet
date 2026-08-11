@@ -21,7 +21,7 @@
 
 (function () {
   const SERVICE_ID = "info";
-  const GROQ_MODEL = "groq/compound"; // has built-in web search, so it can research a real company
+  const GROQ_MODEL = "groq/compound-mini"; // has built-in web search, so it can research a real company
   const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
   function isConfigured() {
@@ -54,12 +54,10 @@
         body: JSON.stringify({
           model: GROQ_MODEL,
           messages: [{ role: "user", content: prompt }],
-          // restrict compound to web search only — cuts out code execution /
-          // visit_website / wolfram_alpha, which were bloating the request
-          // and causing Groq to reject it with a 413 even on short prompts.
-          compound_custom: {
-            tools: { enabled_tools: ["web_search"] },
-          },
+          // NOTE: compound_custom.tools.enabled_tools was tried here to restrict
+          // compound to web_search only, but it produced a different, stranger
+          // error ("Unknown request URL: GET ...") — pulled back out so we can
+          // test compound-mini in isolation before reintroducing it.
         }),
       });
     } catch (networkErr) {
