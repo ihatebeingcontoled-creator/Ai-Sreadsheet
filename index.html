@@ -120,18 +120,22 @@
     text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim);
     background:var(--surface-2); padding:10px 10px; border:1px solid var(--line); position:sticky; top:0;
   }
-  tbody td{ border:1px solid var(--line-soft); padding:9px 10px; vertical-align:middle; }
+  tbody td{ border:1px solid var(--line-soft); padding:9px 10px; vertical-align:middle; overflow:hidden; }
   tr.company-row td{ background:var(--surface-2); border-top:2px solid var(--line); border-bottom:1px solid var(--line); }
-  .company-name-cell{display:flex; align-items:center; gap:8px;}
+  .company-name-cell{display:flex; align-items:center; gap:8px; flex-wrap:wrap;}
   .health-dot{width:8px; height:8px; border-radius:50%; flex-shrink:0;}
   .health-green{background:var(--green);}
   .health-amber{background:var(--amber);}
   .health-red{background:var(--red);}
   .company-name-text{font-family:'Space Grotesk', sans-serif; font-weight:700; font-size:14px; cursor:pointer;}
   .toggle-link{
-    background:none; border:none; color:var(--blue); font-family:'IBM Plex Mono', monospace; font-size:11px;
-    text-decoration:underline; cursor:pointer; padding:0; margin-left:auto;
+    font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:20px; cursor:pointer;
+    border:1px solid transparent; margin-left:auto; text-decoration:none;
   }
+  .toggle-link.expanded{background:var(--surface-2); color:var(--text-dim); border-color:var(--line);}
+  .toggle-link.expanded:hover{background:var(--line-soft);}
+  .toggle-link.collapsed{background:var(--blue-dim); color:var(--blue); border-color:rgba(90,143,214,.3);}
+  .toggle-link.collapsed:hover{background:rgba(90,143,214,.22);}
   .del-link{background:none; border:none; color:var(--text-faint); font-size:15px; cursor:pointer; padding:0 2px;}
   .del-link:hover{color:var(--red);}
   .send-all-btn{
@@ -156,11 +160,12 @@
 
   .cell-btn{
     font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 9px; border-radius:4px;
-    border:1px solid transparent; cursor:pointer; white-space:nowrap;
+    border:1px solid transparent; cursor:pointer; white-space:normal; overflow-wrap:anywhere;
+    max-width:100%; text-align:left;
   }
   .cell-tag{
     display:inline-block; font-family:'IBM Plex Mono', monospace; font-size:12px; padding:4px 9px; border-radius:4px;
-    border:1px solid transparent; cursor:default; white-space:nowrap;
+    border:1px solid transparent; cursor:default; white-space:normal; overflow-wrap:anywhere; max-width:100%;
   }
   .pill-green{background:var(--green-dim); color:var(--green); border-color:rgba(95,174,123,.3);}
   .pill-red{background:var(--red-dim); color:var(--red); border-color:rgba(217,100,91,.3);}
@@ -228,11 +233,12 @@
   .info-preview-btn:hover{border-color:var(--line); color:var(--text);}
   .info-preview-btn.empty{color:var(--blue); font-style:normal; font-weight:600;}
 
-  .attach-cell{display:flex; flex-wrap:wrap; gap:5px; align-items:center; max-width:170px;}
+  .attach-cell{display:flex; flex-wrap:wrap; gap:5px; align-items:center; width:100%;}
   .attach-chip{
-    display:flex; align-items:center; gap:4px;
+    display:flex; align-items:center; gap:4px; max-width:100%;
     background:var(--surface-2); border:1px solid var(--line); border-radius:20px;
-    padding:3px 8px 3px 9px; font-size:10.5px; color:var(--text-dim); white-space:nowrap;
+    padding:3px 8px 3px 9px; font-size:10.5px; color:var(--text-dim);
+    white-space:normal; overflow-wrap:anywhere; word-break:break-word;
   }
   .attach-chip button{
     background:none; border:none; color:var(--text-faint); cursor:pointer; font-size:12px; padding:0; line-height:1;
@@ -371,6 +377,7 @@
           <th style="width:110px;">AI Status<span class="col-resizer"></span></th>
           <th style="width:130px;">Draft Connection<span class="col-resizer"></span></th>
           <th style="width:130px;">Send Connection<span class="col-resizer"></span></th>
+          <th style="width:130px;">Language<span class="col-resizer"></span></th>
           <th style="width:170px;">Attachments<span class="col-resizer"></span></th>
           <th style="width:110px;">Number<span class="col-resizer"></span></th>
           <th style="width:110px;">Address<span class="col-resizer"></span></th>
@@ -440,7 +447,7 @@ function blankChannel(chName){
     status: chName === "Calls" ? "Uncalled" : "Not Sent",
     aiInput:"", aiOutput:"",
     response:"\u2014", responseText:"", responseLink:"",
-    sentText:"", script:"", attachments:[], templateId:null, number:"", address:"",
+    sentText:"", script:"", attachments:[], templateId:null, number:"", address:"", language:"",
     ai:"Uncalled",
     connection:"Disconnected"
   };
@@ -541,10 +548,10 @@ function channelDraftConnectionStatus(chName){
   return connected ? "Connected" : "Disconnected";
 }
 function channelHasResponse(ch){
-  return !!((ch.responseText && ch.responseText.trim()) || (ch.responseLink && ch.responseLink.trim()));
+  return !!(ch.responseText && ch.responseText.trim());
 }
 function responseDisplay(ch){
-  return channelHasResponse(ch) ? { label: "Replied", cls: "pill-amber" } : { label: "\u2014", cls: "pill-grey" };
+  return channelHasResponse(ch) ? { label: "Replied", cls: "pill-amber" } : { label: "Waiting for Response", cls: "pill-grey" };
 }
 
 function sendErrorChannel(ch){
@@ -728,7 +735,7 @@ function addTemplate(){
 function renderBody(){
   const body = document.getElementById('ledgerBody');
   if(state.companies.length===0){
-    body.innerHTML = `<tr><td colspan="12"><div class="empty-state">No companies yet. Add your first row below.</div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="13"><div class="empty-state">No companies yet. Add your first row below.</div></td></tr>`;
     return;
   }
 
@@ -745,7 +752,7 @@ function renderBody(){
             <span class="health-dot ${hc}"></span>
             <span class="company-name-text" onclick="toggleExpand('${company.id}')">${company.name}</span>
             ${company.expanded ? `<button class="send-all-btn ${automateBusy[company.id] ? 'running' : (sendAllDone(company) ? 'complete' : (companyContactMissing(company) ? 'error' : 'pending'))}" onclick="runAutomateAll('${company.id}')" ${automateBusy[company.id] || sendAllDone(company) ? 'disabled' : ''} title="${companyContactMissing(company) && !automateBusy[company.id] ? 'Some channels are missing a number or address \u2013 see the Send buttons below' : 'Fetch Info \u2192 Draft All \u2192 Send All'}">${automateBusy[company.id] ? `<span class="btn-spinner"></span>${automateStage[company.id] || 'Running...'}` : (sendAllDone(company) ? '\u2705 All Sent!' : (companyContactMissing(company) ? '\u26a0\ufe0f Automate' : '\u26a1 Automate'))}</button>` : ``}
-            <button class="toggle-link" onclick="toggleExpand('${company.id}')">${company.expanded ? 'Show Less' : 'Show More'}</button>
+            <button class="toggle-link ${company.expanded ? 'expanded' : 'collapsed'}" onclick="toggleExpand('${company.id}')">${company.expanded ? 'Show Less' : 'Show More'}</button>
             <button class="del-link" onclick="deleteCompany('${company.id}')" title="Remove">&times;</button>
           </div>
         </td>
@@ -762,6 +769,9 @@ function renderBody(){
         <td class="agg-cell">${agg.aiDone}/${agg.total}</td>
         <td class="agg-cell">\u2014</td>
         <td class="agg-cell">\u2014</td>
+        <td class="agg-cell">
+          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchLanguageForCompany('${company.id}')" title="Pulls a language out of this company's Info text and fills it into every channel">${languageFetchBtnLabel(company.id)}</button>
+        </td>
         <td class="agg-cell">\u2014</td>
         <td class="agg-cell">
           <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchNumberForCompany('${company.id}')" title="Pulls a phone number out of this company's Info text and fills it into every channel">${numberFetchBtnLabel(company.id)}</button>
@@ -821,6 +831,7 @@ function renderBody(){
           <td><button class="cell-btn ${channelAiDisplay(ch, chName, company.id).cls}" onclick="openModal('${company.id}','${chName}','ai')">${channelAiDisplay(ch, chName, company.id).label}${(ch.aiInput || ch.aiOutput) ? ' •' : ''}</button></td>
           <td><span class="cell-tag ${connectionPillClass(channelDraftConnectionStatus(chName))}" title="Reflects whether a real Drafting AI key is on file \u2013 not editable">${channelDraftConnectionStatus(chName)}</span></td>
           <td><span class="cell-tag ${connectionPillClass(channelConnectionStatus(chName))}" title="Reflects whether a real Send API key is on file \u2013 not editable">${channelConnectionStatus(chName)}</span></td>
+          <td><input class="cell-input" value="${ch.language}" placeholder="e.g. English" onchange="updateField('${company.id}','${chName}','language',this.value)" /></td>
           <td>
             <div class="attach-cell">
               ${attachHtml}
@@ -1232,6 +1243,7 @@ function performDraftAction(companyId, chName, opts){
     channel: chName,
     templateText: tpl ? tpl.text : "",
     templateSubject: tpl ? tpl.subject : "",
+    language: ch.language,
   }, debug)
     .then(text => {
       stopLoadingCycle(key);
@@ -1302,10 +1314,33 @@ function extractPhoneFromInfo(text){
   });
   return best;
 }
+// same idea as extractEmailFromInfo/extractPhoneFromInfo — pulls a language
+// straight out of the researched Info text instead of asking the AI again.
+// Looks for an explicit "Language: X" line first (in case a custom Info
+// template ever asks for one), then falls back to scanning the text for any
+// language name from a common list.
+const KNOWN_LANGUAGES = [
+  "Lithuanian","English","Russian","Polish","German","French","Spanish","Italian",
+  "Portuguese","Dutch","Swedish","Norwegian","Danish","Finnish","Estonian","Latvian",
+  "Ukrainian","Czech","Slovak","Hungarian","Romanian","Bulgarian","Greek","Turkish",
+  "Arabic","Hebrew","Chinese","Mandarin","Japanese","Korean","Hindi"
+];
+function extractLanguageFromInfo(text){
+  if(!text) return "";
+  const labeled = text.match(/language\s*[:\-]\s*([A-Za-z]+)/i);
+  if(labeled && KNOWN_LANGUAGES.some(l => l.toLowerCase() === labeled[1].toLowerCase())){
+    return labeled[1][0].toUpperCase() + labeled[1].slice(1).toLowerCase();
+  }
+  for(const lang of KNOWN_LANGUAGES){
+    if(new RegExp(`\\b${lang}\\b`, "i").test(text)) return lang;
+  }
+  return "";
+}
 function applyExtractedContacts(company, infoText){
   const email = extractEmailFromInfo(infoText);
   const phone = extractPhoneFromInfo(infoText);
-  if(!email && !phone) return;
+  const language = extractLanguageFromInfo(infoText);
+  if(!email && !phone && !language) return;
   CHANNEL_ORDER.forEach(chName => {
     const ch = company.channels[chName];
     if(!ch) return;
@@ -1316,6 +1351,9 @@ function applyExtractedContacts(company, infoText){
     if(phone && !ch.number.trim()){
       ch.number = phone;
       delete contactErrorFlags[actionKey(company.id, chName, 'send')];
+    }
+    if(language && !ch.language.trim()){
+      ch.language = language;
     }
   });
 }
@@ -1371,6 +1409,23 @@ function fetchEmailForCompany(companyId){
   }
   CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'address', email));
   flashFetchFeedback('email|' + companyId, 'success');
+}
+function languageFetchBtnLabel(companyId){
+  const state_ = fetchFeedback['lang|' + companyId];
+  if(state_ === 'success') return "\u2705 Language Fetched!";
+  if(state_ === 'none') return "\u26a0\ufe0f No Language Found";
+  return "\uD83C\uDF10 Fetch Language";
+}
+function fetchLanguageForCompany(companyId){
+  const c = state.companies.find(c=>c.id===companyId);
+  if(!c) return;
+  const language = extractLanguageFromInfo(c.info);
+  if(!language){
+    flashFetchFeedback('lang|' + companyId, 'none');
+    return;
+  }
+  CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'language', language));
+  flashFetchFeedback('lang|' + companyId, 'success');
 }
 // same as updateField, but doesn't call render() itself — used when the caller
 // (fetchNumberForCompany/fetchEmailForCompany) is about to render anyway after
@@ -1661,6 +1716,14 @@ function openModal(companyId, channel, field){
     textArea.placeholder = "Type here...";
     saveBtn.onclick = () => {
       c.info = textArea.value;
+      // keep each channel's Language field in sync with whatever Info now says,
+      // same as a Fetch/Generate Info run would (only fills empty ones)
+      const language = extractLanguageFromInfo(c.info);
+      if(language){
+        CHANNEL_ORDER.forEach(chName => {
+          if(!c.channels[chName].language.trim()) c.channels[chName].language = language;
+        });
+      }
       closeModal();
       render();
     };
