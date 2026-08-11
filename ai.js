@@ -1,48 +1,50 @@
 /* ai.js — real AI integration for the Outreach Ledger.
  *
- * Right now this powers "Fetch Info" / "Generate Info" / the Info step of
- * "Automate": it calls Groq's `groq/compound` model, which has a *built-in*
- * web-search tool, so it actually looks the company up instead of returning
- * canned text.
+ * Two things live here:
  *
- * compound_custom.tools.enabled_tools is set to just ["web_search"] below —
- * by default compound can also reach for code execution, visiting websites,
- * and Wolfram Alpha in the same call, and that extra tool orchestration was
- * causing Groq to reject even tiny prompts with a 413. Restricting it to
- * search-only keeps the real web lookup this app needs while avoiding that.
+ * 1. Info research ("Fetch Info" / "Generate Info" / the Info step of
+ *    "Automate"): calls Groq's `groq/compound-mini` model, which has a
+ *    *built-in* web-search tool, so it actually looks the company up
+ *    instead of returning canned text.
  *
- * The Groq API key itself is managed by apikeys.js (top-right status bar —
- * the "🔍 Info" pill). It's stored only in this browser's localStorage and
- * sent only to api.groq.com — never anywhere else.
+ *    compound_custom.tools.enabled_tools is set to just ["web_search"] below —
+ *    by default compound can also reach for code execution, visiting websites,
+ *    and Wolfram Alpha in the same call, and that extra tool orchestration was
+ *    causing Groq to reject even tiny prompts with a 413. Restricting it to
+ *    search-only keeps the real web lookup this app needs while avoiding that.
  *
- * Everything else in index.html talks to this file through one global:
+ * 2. Drafting ("Draft" / "Script" / "Draft All" / the Draft step of
+ *    "Automate"): calls a plain (non-search) Groq chat model. It's handed
+ *    the company info that step 1 already gathered, plus whatever template
+ *    is attached to that channel, and told what to do with it — write a
+ *    personalized outreach message (or call script) rather than just
+ *    reusing the template verbatim. No web search needed here, so a
+ *    faster/cheaper model is used.
+ *
+ * Both API keys are managed by apikeys.js (top-right status bar — the
+ * "🔍 Info" and "✏️ Draft" pills). They're stored only in this browser's
+ * localStorage and sent only to api.groq.com — never anywhere else.
+ *
+ * Everything else in index.html talks to this file through two globals:
  *   window.AI.fetchCompanyInfo(companyName) -> Promise<string>
+ *   window.AI.fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }) -> Promise<string>
  */
 
 (function () {
-  const SERVICE_ID = "info";
+  const INFO_SERVICE_ID = "info";
+  const DRAFT_SERVICE_ID = "draft";
   const GROQ_MODEL = "groq/compound-mini"; // has built-in web search, so it can research a real company
+  const GROQ_DRAFT_MODEL = "llama-3.3-70b-versatile"; // plain model, no search tool — just writes the message
   const GROQ_ENDPOINT = "https://api.groq.com/openai/v1/chat/completions";
 
   function isConfigured() {
-    return !!(window.APIKeys && window.APIKeys.hasActiveKey(SERVICE_ID));
+    return !!(window.APIKeys && window.APIKeys.hasActiveKey(INFO_SERVICE_ID));
   }
 
-  async function fetchCompanyInfo(companyName) {
-    const key = window.APIKeys ? window.APIKeys.getActiveKey(SERVICE_ID) : "";
-    if (!key) {
-      if (window.APIKeys) window.APIKeys.openManager(SERVICE_ID);
-      throw new Error(
-        "No Info Research API key set yet. Click the \uD83D\uDD0D Info button (top right) to add one."
-      );
-    }
-
-    const prompt =
-      `Research the real company/business named "${companyName}". Use web search to find out ` +
-      `what they actually do. Reply in short plain-text lines (no markdown symbols) labeled: ` +
-      `Overview, Key products/services, Target market, Competitors, Recent news. ` +
-      `If you can't find a real business by this name, say so plainly instead of inventing details.`;
-
+  // shared low-level caller: posts one user-turn prompt to Groq with the given
+  // key + model, and returns the plain-text reply. Both fetchCompanyInfo and
+  // fetchDraft build a prompt and hand it to this.
+  async function callGroq(key, model, prompt, notConfiguredService) {
     let res;
     try {
       res = await fetch(GROQ_ENDPOINT, {
@@ -52,12 +54,8 @@
           Authorization: `Bearer ${key}`,
         },
         body: JSON.stringify({
-          model: GROQ_MODEL,
+          model,
           messages: [{ role: "user", content: prompt }],
-          // NOTE: compound_custom.tools.enabled_tools was tried here to restrict
-          // compound to web_search only, but it produced a different, stranger
-          // error ("Unknown request URL: GET ...") — pulled back out so we can
-          // test compound-mini in isolation before reintroducing it.
         }),
       });
     } catch (networkErr) {
@@ -74,14 +72,13 @@
       }
       if (res.status === 401) {
         throw new Error(
-          "Groq rejected the API key (401). Click the \uD83D\uDD0D Info button (top right) to check or switch it."
+          `Groq rejected the API key (401). Click the ${notConfiguredService.icon} ${notConfiguredService.short} button (top right) to check or switch it.`
         );
       }
       if (res.status === 413) {
         throw new Error(
-          "Groq rejected the request as too large (413). This is a known issue with the groq/compound model " +
-            "on some queries \u2014 not your API key. Try again; if it keeps happening, it may be worth switching " +
-            "GROQ_MODEL to \"groq/compound-mini\" in ai.js."
+          "Groq rejected the request as too large (413). Try again with a shorter template/info, " +
+            "or switch the model used in ai.js."
         );
       }
       throw new Error(`Groq API error ${res.status}: ${detail || "request failed"}`);
@@ -93,5 +90,93 @@
     return text.trim();
   }
 
-  window.AI = { isConfigured, fetchCompanyInfo };
+  async function fetchCompanyInfo(companyName, researchTemplateText) {
+    const key = window.APIKeys ? window.APIKeys.getActiveKey(INFO_SERVICE_ID) : "";
+    if (!key) {
+      if (window.APIKeys) window.APIKeys.openManager(INFO_SERVICE_ID);
+      throw new Error(
+        "No Info Research API key set yet. Click the \uD83D\uDD0D Info button (top right) to add one."
+      );
+    }
+
+    // if an "Info" template is attached, use its text as the actual research
+    // brief (it can call out specific things to look for); otherwise fall
+    // back to the generic overview brief.
+    const brief =
+      researchTemplateText && researchTemplateText.trim()
+        ? researchTemplateText.trim().replace(/\{\{\s*company\s*\}\}/gi, companyName)
+        : `Research {{company}}: summarize what they do, their key products or services, their specialties, ` +
+          `their main competitors, target market/customers, company size, and any recent news.`.replace(
+            /\{\{\s*company\s*\}\}/gi,
+            companyName
+          );
+
+    const prompt =
+      `Research the real company/business named "${companyName}". Use web search to find out ` +
+      `what they actually do. ${brief} ` +
+      `Reply in short plain-text lines (no markdown symbols), clearly labeled sections. ` +
+      `If you can't find a real business by this name, say so plainly instead of inventing details.`;
+
+    return callGroq(key, GROQ_MODEL, prompt, { icon: "\uD83D\uDD0D", short: "Info" });
+  }
+
+  /* fetchDraft — writes the actual outreach message/call-script text.
+   * Inputs:
+   *   companyName    - the company being contacted
+   *   companyInfo    - the research text already produced by fetchCompanyInfo
+   *   channel        - "Email" | "iMessage" | "Viber" | "Calls"
+   *   templateText   - the attached template's body text (instructions/example
+   *                     for tone & content — may be empty if nothing's attached)
+   *   templateSubject- the attached template's subject line, Email only (may be empty)
+   * Output: plain text — the drafted message body (or, for Calls, the script
+   * to read out loud). Never includes a subject line in the body itself.
+   */
+  async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }) {
+    const key = window.APIKeys ? window.APIKeys.getActiveKey(DRAFT_SERVICE_ID) : "";
+    if (!key) {
+      if (window.APIKeys) window.APIKeys.openManager(DRAFT_SERVICE_ID);
+      throw new Error(
+        "No Drafting AI API key set yet. Click the \u270F\uFE0F Draft button (top right) to add one."
+      );
+    }
+
+    const isCall = channel === "Calls";
+    const fill = (s) => (s || "").replace(/\{\{\s*company\s*\}\}/gi, companyName);
+
+    const parts = [
+      `You are writing a personalized ${isCall ? "cold-call script" : channel + " outreach message"} ` +
+        `to send to the real company "${companyName}".`,
+      `Here is what's known about this company, from research:\n${companyInfo ? fill(companyInfo) : "(no research notes available)"}`,
+    ];
+
+    if (templateText && templateText.trim()) {
+      parts.push(
+        `Use the following as a template/guide for tone, structure, and the key points to include. ` +
+          `Personalize it for this specific company using the research above \u2014 don't just copy it verbatim, ` +
+          `adapt it so it clearly references something true about this company:\n${fill(templateText)}`
+      );
+    } else {
+      parts.push(
+        `No template is attached, so write a short, natural, friendly outreach message from scratch that references something specific about the company.`
+      );
+    }
+
+    if (isCall) {
+      parts.push(
+        `Write only the final call script \u2014 what to actually say out loud on the phone, 3\u20136 sentences, ` +
+          `natural spoken language. Plain text only. No labels, no markdown, no stage directions, no explanations.`
+      );
+    } else {
+      parts.push(
+        `Write only the final message body text (not the subject line). Plain text only \u2014 no labels, ` +
+          `no markdown, no explanations, no placeholders left unfilled.` +
+          (templateSubject ? ` (Subject line is handled separately \u2014 don't repeat it in the body.)` : "")
+      );
+    }
+
+    const prompt = parts.join("\n\n");
+    return callGroq(key, GROQ_DRAFT_MODEL, prompt, { icon: "\u270F\uFE0F", short: "Draft" });
+  }
+
+  window.AI = { isConfigured, fetchCompanyInfo, fetchDraft };
 })();
