@@ -55,6 +55,15 @@
       placeholder: "API key...",
     },
     {
+      id: "viber",
+      label: "Viber",
+      icon: "\uD83D\uDCF1",
+      short: "Viber",
+      wired: false,
+      desc: "For automated Viber sending. Not connected to a real provider yet \u2014 sending is still simulated \u2014 but you can store and label keys here so they're ready.",
+      placeholder: "API key...",
+    },
+    {
       id: "calling",
       label: "Cold Calling",
       icon: "\uD83D\uDCDE",
