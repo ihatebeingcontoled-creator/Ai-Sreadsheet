@@ -5,6 +5,12 @@
  * web-search tool, so it actually looks the company up instead of returning
  * canned text.
  *
+ * compound_custom.tools.enabled_tools is set to just ["web_search"] below —
+ * by default compound can also reach for code execution, visiting websites,
+ * and Wolfram Alpha in the same call, and that extra tool orchestration was
+ * causing Groq to reject even tiny prompts with a 413. Restricting it to
+ * search-only keeps the real web lookup this app needs while avoiding that.
+ *
  * The Groq API key itself is managed by apikeys.js (top-right status bar —
  * the "🔍 Info" pill). It's stored only in this browser's localStorage and
  * sent only to api.groq.com — never anywhere else.
@@ -48,6 +54,12 @@
         body: JSON.stringify({
           model: GROQ_MODEL,
           messages: [{ role: "user", content: prompt }],
+          // restrict compound to web search only — cuts out code execution /
+          // visit_website / wolfram_alpha, which were bloating the request
+          // and causing Groq to reject it with a 413 even on short prompts.
+          compound_custom: {
+            tools: { enabled_tools: ["web_search"] },
+          },
         }),
       });
     } catch (networkErr) {
@@ -69,9 +81,9 @@
       }
       if (res.status === 413) {
         throw new Error(
-          "Groq rejected the request as too large (413). This almost always means the saved key has extra " +
-            "text in it (like \"GROQ_API_KEY=\", quotes, or a whole pasted line) instead of just the key. " +
-            "Click the \uD83D\uDD0D Info button (top right) \u2014 it'll flag a key that looks too long."
+          "Groq rejected the request as too large (413). This is a known issue with the groq/compound model " +
+            "on some queries \u2014 not your API key. Try again; if it keeps happening, it may be worth switching " +
+            "GROQ_MODEL to \"groq/compound-mini\" in ai.js."
         );
       }
       throw new Error(`Groq API error ${res.status}: ${detail || "request failed"}`);
