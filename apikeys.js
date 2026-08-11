@@ -46,6 +46,15 @@
       placeholder: "API key...",
     },
     {
+      id: "imessage",
+      label: "iMessage",
+      icon: "\uD83D\uDCAC",
+      short: "iMsg",
+      wired: false,
+      desc: "For automated iMessage sending. Not connected to a real provider yet \u2014 sending is still simulated \u2014 but you can store and label keys here so they're ready.",
+      placeholder: "API key...",
+    },
+    {
       id: "calling",
       label: "Cold Calling",
       icon: "\uD83D\uDCDE",
@@ -176,13 +185,14 @@
     const slot = document.getElementById("apiKeysBarSlot");
     if (slot) {
       bar.style.cssText = `
-        display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; align-items:flex-start;
+        display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; align-items:flex-start;
+        max-width:100%;
       `;
       slot.appendChild(bar);
     } else {
       bar.style.cssText = `
         position:fixed; top:14px; right:14px; z-index:999;
-        display:flex; gap:6px; flex-wrap:wrap; justify-content:flex-end; max-width:280px;
+        display:flex; gap:9px; flex-wrap:wrap; justify-content:flex-end; max-width:360px;
       `;
       document.body.appendChild(bar);
     }
@@ -199,11 +209,11 @@
       btn.type = "button";
       btn.textContent = `${sv.icon} ${sv.short} ${ok ? "\u2705" : "\u274C"}`;
       btn.style.cssText = `
-        font-family:'IBM Plex Mono', monospace; font-size:11px;
+        font-family:'IBM Plex Mono', monospace; font-size:13.5px; font-weight:600;
         background:${ok ? "rgba(95,174,123,.14)" : "rgba(217,100,91,.14)"};
         color:${ok ? "#5fae7b" : "#d9645b"};
-        border:1px solid ${ok ? "rgba(95,174,123,.3)" : "rgba(217,100,91,.3)"};
-        padding:6px 10px; border-radius:20px; cursor:pointer; white-space:nowrap;
+        border:1px solid ${ok ? "rgba(95,174,123,.35)" : "rgba(217,100,91,.35)"};
+        padding:9px 16px; border-radius:24px; cursor:pointer; white-space:nowrap;
       `;
       btn.onclick = () => openManager(sv.id);
       bar.appendChild(btn);
@@ -223,25 +233,25 @@
       display:none; align-items:center; justify-content:center; padding:20px;
     `;
     overlay.innerHTML = `
-      <div style="background:#1c2024; border:1px solid #3a4148; border-radius:10px; padding:20px; width:100%; max-width:440px; max-height:82vh; overflow-y:auto; font-family:'IBM Plex Mono', monospace; color:#e9e6e0;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:2px;">
-          <div id="apiKeysModalTitle" style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:15px;"></div>
-          <button id="apiKeysCloseX" style="background:none; border:none; color:#98a0a7; font-size:16px; cursor:pointer;">\u2715</button>
+      <div style="background:#1c2024; border:1px solid #3a4148; border-radius:12px; padding:24px; width:100%; max-width:480px; max-height:82vh; overflow-y:auto; font-family:'IBM Plex Mono', monospace; color:#e9e6e0;">
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:4px;">
+          <div id="apiKeysModalTitle" style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:18px;"></div>
+          <button id="apiKeysCloseX" style="background:none; border:none; color:#98a0a7; font-size:20px; cursor:pointer;">\u2715</button>
         </div>
-        <div id="apiKeysModalDesc" style="font-size:11.5px; color:#98a0a7; margin-bottom:14px; line-height:1.5;"></div>
+        <div id="apiKeysModalDesc" style="font-size:13px; color:#98a0a7; margin-bottom:18px; line-height:1.55;"></div>
         <div id="apiKeysList"></div>
-        <div style="margin-top:14px; padding-top:14px; border-top:1px solid #2b3137;">
-          <div style="font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:#5f6870; margin-bottom:6px;">Add a key</div>
+        <div style="margin-top:18px; padding-top:18px; border-top:1px solid #2b3137;">
+          <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#5f6870; margin-bottom:8px;">Add a key</div>
           <input id="apiKeysNewLabel" type="text" placeholder="Label (e.g. Personal key)" autocomplete="off" style="
             width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0;
-            font-family:'IBM Plex Mono', monospace; font-size:12.5px; padding:8px 10px; border-radius:6px; box-sizing:border-box; margin-bottom:8px;
+            font-family:'IBM Plex Mono', monospace; font-size:14.5px; padding:11px 13px; border-radius:8px; box-sizing:border-box; margin-bottom:10px;
           "/>
           <input id="apiKeysNewValue" type="password" placeholder="API key..." autocomplete="off" style="
             width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0;
-            font-family:'IBM Plex Mono', monospace; font-size:12.5px; padding:8px 10px; border-radius:6px; box-sizing:border-box;
+            font-family:'IBM Plex Mono', monospace; font-size:14.5px; padding:11px 13px; border-radius:8px; box-sizing:border-box;
           "/>
-          <div style="display:flex; justify-content:flex-end; margin-top:10px;">
-            <button id="apiKeysAddBtn" style="background:rgba(95,174,123,.14); border:1px solid rgba(95,174,123,.3); color:#5fae7b; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:12.5px; padding:7px 14px; border-radius:6px; cursor:pointer;">+ Add Key</button>
+          <div style="display:flex; justify-content:flex-end; margin-top:12px;">
+            <button id="apiKeysAddBtn" style="background:rgba(95,174,123,.14); border:1px solid rgba(95,174,123,.3); color:#5fae7b; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:14.5px; padding:10px 20px; border-radius:8px; cursor:pointer;">+ Add Key</button>
           </div>
         </div>
       </div>
@@ -326,28 +336,28 @@
         const isActive = k.id === activeId;
         if (editingKeyId === k.id) {
           return `
-            <div data-row-id="${k.id}" style="border:1px solid #3a4148; border-radius:8px; padding:10px; margin-bottom:8px; background:#20242a;">
-              <input class="apk-edit-label" type="text" value="${escapeAttr(k.label)}" style="width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0; font-family:'IBM Plex Mono', monospace; font-size:12px; padding:6px 8px; border-radius:5px; box-sizing:border-box; margin-bottom:6px;" />
-              <input class="apk-edit-value" type="password" placeholder="Leave blank to keep current key" style="width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0; font-family:'IBM Plex Mono', monospace; font-size:12px; padding:6px 8px; border-radius:5px; box-sizing:border-box;" />
-              <div style="display:flex; justify-content:flex-end; gap:6px; margin-top:8px;">
-                <button data-action="cancel-edit" data-key-id="${k.id}" style="background:transparent; border:1px solid #3a4148; color:#e9e6e0; font-size:11.5px; padding:6px 10px; border-radius:5px; cursor:pointer;">Cancel</button>
-                <button data-action="save-edit" data-key-id="${k.id}" style="background:rgba(90,143,214,.14); border:1px solid rgba(90,143,214,.3); color:#5a8fd6; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:11.5px; padding:6px 10px; border-radius:5px; cursor:pointer;">Save</button>
+            <div data-row-id="${k.id}" style="border:1px solid #3a4148; border-radius:10px; padding:14px; margin-bottom:10px; background:#20242a;">
+              <input class="apk-edit-label" type="text" value="${escapeAttr(k.label)}" style="width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0; font-family:'IBM Plex Mono', monospace; font-size:14px; padding:9px 11px; border-radius:7px; box-sizing:border-box; margin-bottom:8px;" />
+              <input class="apk-edit-value" type="password" placeholder="Leave blank to keep current key" style="width:100%; background:#14171a; border:1px solid #3a4148; color:#e9e6e0; font-family:'IBM Plex Mono', monospace; font-size:14px; padding:9px 11px; border-radius:7px; box-sizing:border-box;" />
+              <div style="display:flex; justify-content:flex-end; gap:8px; margin-top:10px;">
+                <button data-action="cancel-edit" data-key-id="${k.id}" style="background:transparent; border:1px solid #3a4148; color:#e9e6e0; font-size:13.5px; padding:9px 14px; border-radius:7px; cursor:pointer;">Cancel</button>
+                <button data-action="save-edit" data-key-id="${k.id}" style="background:rgba(90,143,214,.14); border:1px solid rgba(90,143,214,.3); color:#5a8fd6; font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13.5px; padding:9px 14px; border-radius:7px; cursor:pointer;">Save</button>
               </div>
             </div>`;
         }
         return `
-          <div style="border:1px solid ${isActive ? "rgba(95,174,123,.35)" : "#3a4148"}; border-radius:8px; padding:10px 12px; margin-bottom:8px; background:${isActive ? "rgba(95,174,123,.06)" : "#20242a"};">
-            <div style="display:flex; align-items:center; justify-content:space-between; gap:8px;">
+          <div style="border:1px solid ${isActive ? "rgba(95,174,123,.35)" : "#3a4148"}; border-radius:10px; padding:14px 16px; margin-bottom:10px; background:${isActive ? "rgba(95,174,123,.06)" : "#20242a"};">
+            <div style="display:flex; align-items:center; justify-content:space-between; gap:10px;">
               <div style="min-width:0;">
-                <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:13px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(k.label)}</div>
-                <div style="font-size:11px; color:#5f6870; margin-top:2px;">${escapeHtml(maskValue(k.value))}</div>
+                <div style="font-family:'Space Grotesk',sans-serif; font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(k.label)}</div>
+                <div style="font-size:12.5px; color:#5f6870; margin-top:3px;">${escapeHtml(maskValue(k.value))}</div>
               </div>
-              ${isActive ? `<span style="flex-shrink:0; font-size:9.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#5fae7b; background:rgba(95,174,123,.14); border:1px solid rgba(95,174,123,.3); padding:3px 8px; border-radius:20px; white-space:nowrap;">\u2713 In production</span>` : ""}
+              ${isActive ? `<span style="flex-shrink:0; font-size:10.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; color:#5fae7b; background:rgba(95,174,123,.14); border:1px solid rgba(95,174,123,.3); padding:4px 10px; border-radius:20px; white-space:nowrap;">\u2713 In production</span>` : ""}
             </div>
-            <div style="display:flex; gap:6px; margin-top:8px;">
-              ${isActive ? "" : `<button data-action="use" data-key-id="${k.id}" style="background:rgba(90,143,214,.14); border:1px solid rgba(90,143,214,.3); color:#5a8fd6; font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:5px; cursor:pointer;">Use this one</button>`}
-              <button data-action="edit" data-key-id="${k.id}" style="background:transparent; border:1px solid #3a4148; color:#98a0a7; font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:5px; cursor:pointer;">Edit</button>
-              <button data-action="delete" data-key-id="${k.id}" style="background:transparent; border:1px solid rgba(217,100,91,.3); color:#d9645b; font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:5px; cursor:pointer; margin-left:auto;">Delete</button>
+            <div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px;">
+              ${isActive ? "" : `<button data-action="use" data-key-id="${k.id}" style="background:rgba(90,143,214,.14); border:1px solid rgba(90,143,214,.3); color:#5a8fd6; font-family:'IBM Plex Mono', monospace; font-size:13px; padding:8px 14px; border-radius:7px; cursor:pointer;">Use this one</button>`}
+              <button data-action="edit" data-key-id="${k.id}" style="background:transparent; border:1px solid #3a4148; color:#98a0a7; font-family:'IBM Plex Mono', monospace; font-size:13px; padding:8px 14px; border-radius:7px; cursor:pointer;">Edit</button>
+              <button data-action="delete" data-key-id="${k.id}" style="background:transparent; border:1px solid rgba(217,100,91,.3); color:#d9645b; font-family:'IBM Plex Mono', monospace; font-size:13px; padding:8px 14px; border-radius:7px; cursor:pointer; margin-left:auto;">Delete</button>
             </div>
           </div>`;
       })
