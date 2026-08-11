@@ -157,10 +157,13 @@
    *   templateText   - the attached template's body text (instructions/example
    *                     for tone & content — may be empty if nothing's attached)
    *   templateSubject- the attached template's subject line, Email only (may be empty)
+   *   language       - optional language name (from the channel's Language field)
+   *                     to write the draft in \u2014 e.g. "Lithuanian". Empty/omitted
+   *                     means no instruction is added and the model picks its default.
    * Output: plain text — the drafted message body (or, for Calls, the script
    * to read out loud). Never includes a subject line in the body itself.
    */
-  async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }, debug) {
+  async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject, language }, debug) {
     const svc = CHANNEL_DRAFT_SERVICE[channel];
     if (!svc) throw new Error(`Unknown channel "${channel}" \u2014 no drafting service configured for it.`);
 
@@ -204,6 +207,11 @@
           `no markdown, no explanations, no placeholders left unfilled.` +
           (templateSubject ? ` (Subject line is handled separately \u2014 don't repeat it in the body.)` : "")
       );
+    }
+
+    // extra instruction tacked on at the end, only when a language is actually set
+    if (language && language.trim()) {
+      parts.push(`Write your answer in ${language.trim()}.`);
     }
 
     const prompt = parts.join("\n\n");
