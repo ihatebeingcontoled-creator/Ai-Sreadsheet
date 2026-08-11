@@ -281,7 +281,7 @@
   .modal-subtitle{font-size:11px; color:var(--text-faint); padding:14px 14px 6px; text-transform:uppercase; letter-spacing:.06em; border-top:1px solid var(--line-soft); margin-top:6px;}
   .modal-text-wrap{padding:0 14px;}
   .modal-textarea{
-    width:100%; min-height:110px; resize:vertical;
+    width:100%; min-height:110px; resize:none; overflow:hidden;
     background:var(--surface-2); border:1px solid var(--line); color:var(--text);
     font-family:'IBM Plex Mono', monospace; font-size:13px; line-height:1.5;
     padding:9px 10px; border-radius:6px;
@@ -366,7 +366,8 @@
           <th style="width:150px;">Response<span class="col-resizer"></span></th>
           <th style="width:150px;">Sent Text<span class="col-resizer"></span></th>
           <th style="width:110px;">AI Status<span class="col-resizer"></span></th>
-          <th style="width:120px;">Connection<span class="col-resizer"></span></th>
+          <th style="width:130px;">Draft Connection<span class="col-resizer"></span></th>
+          <th style="width:130px;">Send Connection<span class="col-resizer"></span></th>
           <th style="width:170px;">Attachments<span class="col-resizer"></span></th>
           <th style="width:110px;">Number<span class="col-resizer"></span></th>
           <th style="width:110px;">Address<span class="col-resizer"></span></th>
@@ -518,6 +519,16 @@ function channelConnectionStatus(chName){
   // read-only: reflects whether a real, active API key is on file for this channel's service —
   // not something you can toggle by hand
   const svc = CHANNEL_SERVICE_ID[chName];
+  const connected = svc && window.APIKeys && window.APIKeys.hasActiveKey(svc);
+  return connected ? "Connected" : "Disconnected";
+}
+
+// which apikeys.js service powers each channel's Draft/Script AI call (see ai.js's
+// CHANNEL_DRAFT_SERVICE — same ids, kept in sync by hand since ai.js doesn't expose it)
+const CHANNEL_DRAFT_SERVICE_ID = { Email: "draftEmail", iMessage: "draftIMessage", Viber: "draftViber", Calls: "draftCalls" };
+function channelDraftConnectionStatus(chName){
+  // read-only: reflects whether a real, active Drafting AI key is on file for this channel
+  const svc = CHANNEL_DRAFT_SERVICE_ID[chName];
   const connected = svc && window.APIKeys && window.APIKeys.hasActiveKey(svc);
   return connected ? "Connected" : "Disconnected";
 }
@@ -708,7 +719,7 @@ function addTemplate(){
 function renderBody(){
   const body = document.getElementById('ledgerBody');
   if(state.companies.length===0){
-    body.innerHTML = `<tr><td colspan="11"><div class="empty-state">No companies yet. Add your first row below.</div></td></tr>`;
+    body.innerHTML = `<tr><td colspan="12"><div class="empty-state">No companies yet. Add your first row below.</div></td></tr>`;
     return;
   }
 
@@ -794,7 +805,8 @@ function renderBody(){
             <button class="text-preview-btn ${sentPreview?'':'empty'}" onclick="openModal('${company.id}','${chName}','sentText')">${sentPreview ? escAttr(sentPreview) : 'Add sent text...'}</button>
           </td>
           <td><button class="cell-btn ${channelAiDisplay(ch, chName, company.id).cls}" onclick="openModal('${company.id}','${chName}','ai')">${channelAiDisplay(ch, chName, company.id).label}${(ch.aiInput || ch.aiOutput) ? ' •' : ''}</button></td>
-          <td><span class="cell-tag ${connectionPillClass(channelConnectionStatus(chName))}" title="Reflects whether a real API key is on file \u2013 not editable">${channelConnectionStatus(chName)}</span></td>
+          <td><span class="cell-tag ${connectionPillClass(channelDraftConnectionStatus(chName))}" title="Reflects whether a real Drafting AI key is on file \u2013 not editable">${channelDraftConnectionStatus(chName)}</span></td>
+          <td><span class="cell-tag ${connectionPillClass(channelConnectionStatus(chName))}" title="Reflects whether a real Send API key is on file \u2013 not editable">${channelConnectionStatus(chName)}</span></td>
           <td>
             <div class="attach-cell">
               ${attachHtml}
@@ -1408,6 +1420,25 @@ function removeAttachment(companyId, channel, idx){
 }
 
 /* ---------- modal: handles both option-lists and free text ---------- */
+/* Auto-grows a modal textarea to fit its full content, so the popups always
+   show everything instantly instead of showing a tiny internal scrollbar
+   (the modal SHEET itself can still scroll if the content is really long,
+   but the little text box never clips/scrolls on its own anymore). */
+function autoGrowModalTextarea(el){
+  if(!el) return;
+  el.style.height = "auto";
+  el.style.height = (el.scrollHeight + 2) + "px";
+}
+function autoGrowAllModalTextareas(){
+  autoGrowModalTextarea(document.getElementById('modalTextArea'));
+  autoGrowModalTextarea(document.getElementById('modalTextArea2'));
+}
+// keep growing live as you type/paste into either modal textarea
+["modalTextArea", "modalTextArea2"].forEach(id => {
+  const el = document.getElementById(id);
+  if(el) el.addEventListener('input', () => autoGrowModalTextarea(el));
+});
+
 function openModal(companyId, channel, field){
   pendingModal = { companyId, channel, field };
   const c = state.companies.find(c=>c.id===companyId);
@@ -1520,6 +1551,9 @@ function openModal(companyId, channel, field){
   }
 
   document.getElementById('modalOverlay').classList.add('active');
+  // sizes must be computed after the overlay is actually visible (display:none
+  // elements report 0 scrollHeight), and after layout settles for long text
+  requestAnimationFrame(autoGrowAllModalTextareas);
 }
 function selectOption(value){
   if(!pendingModal) return;
