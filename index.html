@@ -431,10 +431,23 @@ function blankChannel(chName){
     status: chName === "Calls" ? "Uncalled" : "Not Sent",
     aiInput:"", aiOutput:"",
     response:"\u2014", responseText:"", responseLink:"",
-    sentText:"", script:"", attachments:[], number:"", address:"",
+    sentText:"", script:"", attachments:[], templateId:null, number:"", address:"",
     ai:"Uncalled",
     connection:"Disconnected"
   };
+}
+
+/* Single source of truth for "which template does this channel actually use".
+   Always prefers the specific template that was pinned/attached (chObj.templateId).
+   Only falls back to "first template for this channel" when nothing is pinned,
+   so a pinned attachment always wins even if the user edits it or adds more
+   templates for the same channel afterward. */
+function getChannelTemplate(chObj, chName){
+  if(chObj && chObj.templateId){
+    const pinned = state.templates.find(t => t.id === chObj.templateId);
+    if(pinned) return pinned;
+  }
+  return state.templates.find(t => t.channel === chName);
 }
 
 let state = {
@@ -709,7 +722,7 @@ function renderBody(){
         <td class="${company.expanded ? 'actions-cell' : 'agg-cell'}">
           ${company.expanded ? `
             ${renderActionBtn(actionKey(company.id,'','fetchInfo'), 'fetchInfo', '🔍 Fetch Info', '\u2705 Fetched', !!company.info, aiErrorFlags[actionKey(company.id,'','fetchInfo')], `runAction('fetchInfo','${company.id}','')`)}
-            ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runAction('draftAll','${company.id}','')`, !company.info, "Fetch or generate company info first")}
+            ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runDraftAllSequential('${company.id}')`, !company.info, "Fetch or generate company info first")}
             ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
           ` : `\u2014`}
         </td>
@@ -816,7 +829,7 @@ function updateField(companyId, channel, field, value){
 function markSent(channelObj, chName){
   channelObj.status = (chName === 'Calls') ? 'Called' : 'Sent';
   if(!channelObj.sentText){
-    const tpl = state.templates.find(t => t.channel === chName);
+    const tpl = getChannelTemplate(channelObj, chName);
     if(tpl) channelObj.sentText = tpl.text;
   }
 }
@@ -918,6 +931,14 @@ function runAction(type, companyId, chName){
     runFetchInfoStep(companyId);
     return;
   }
+  // draft/script are also real AI calls now (see performDraftAction below) — they draft
+  // the actual message/script from the company's info + attached template via ai.js
+  if(type === 'draft' || type === 'script'){
+    performDraftAction(companyId, chName).then(ok => {
+      if(ok) openModal(companyId, chName, type === 'script' ? 'script' : 'sentText');
+    });
+    return;
+  }
 
   const key = actionKey(companyId, chName, type);
   if(btnBusy[key]) return;
@@ -934,48 +955,16 @@ function runAction(type, companyId, chName){
     delete contactErrorFlags[key];
   }
 
-  // guardrail: can't draft/script a message off company research that doesn't exist yet
-  if(type === 'draft' || type === 'script' || type === 'draftAll'){
-    const cGuard = state.companies.find(c=>c.id===companyId);
-    if(!cGuard.info){
-      render(); // the button is already disabled in this state, this is just a safety net
-      return;
-    }
-  }
-
   btnBusy[key] = 'loading';
   startLoadingCycle(key, type);
   render();
   setTimeout(() => {
     stopLoadingCycle(key);
     const c = state.companies.find(c=>c.id===companyId);
-    if(type === 'draft'){
-      const chObj = c.channels[chName];
-      if(!chObj.sentText){
-        const tpl = state.templates.find(t => t.channel === chName);
-        if(tpl) chObj.sentText = tpl.text;
-      }
-    } else if(type === 'script'){
-      const chObj = c.channels[chName];
-      if(!chObj.script){
-        const tpl = state.templates.find(t => t.channel === 'Calls');
-        if(tpl) chObj.script = tpl.text;
-      }
-    } else if(type === 'send'){
+    // draft/script/draftAll are handled by performDraftAction / runDraftAllSequential (real AI
+    // calls) above and never reach here anymore — this path is send/sendAll only.
+    if(type === 'send'){
       markSent(c.channels[chName], chName);
-    } else if(type === 'draftAll'){
-      CHANNEL_ORDER.forEach(ch2 => {
-        const chObj = c.channels[ch2];
-        if(ch2 === 'Calls'){
-          if(!chObj.script){
-            const tpl = state.templates.find(t => t.channel === 'Calls');
-            if(tpl) chObj.script = tpl.text;
-          }
-        } else if(!chObj.sentText){
-          const tpl = state.templates.find(t => t.channel === ch2);
-          if(tpl) chObj.sentText = tpl.text;
-        }
-      });
     } else if(type === 'sendAll'){
       CHANNEL_ORDER.forEach(ch2 => markSent(c.channels[ch2], ch2));
     }
@@ -986,13 +975,8 @@ function runAction(type, companyId, chName){
       c.channels[chName].aiOutput = '';
     }
 
-    if(type === 'draft' || type === 'send' || type === 'script' || type === 'fetchAllInfo'){
+    if(type === 'send' || type === 'fetchAllInfo'){
       doneFlags[key] = true;
-    } else if(type === 'draftAll'){
-      doneFlags[key] = true;
-      CHANNEL_ORDER.forEach(ch2 => {
-        doneFlags[actionKey(companyId, ch2, ch2 === 'Calls' ? 'script' : 'draft')] = true;
-      });
     } else if(type === 'sendAll'){
       doneFlags[key] = true;
       CHANNEL_ORDER.forEach(ch2 => {
@@ -1004,9 +988,7 @@ function runAction(type, companyId, chName){
     render();
     setTimeout(() => {
       delete btnBusy[key];
-      if(type === 'draft') openModal(companyId, chName, 'sentText');
-      else if(type === 'script') openModal(companyId, chName, 'script');
-      else render();
+      render();
     }, 1000);
   }, LOADING_DURATION);
 }
@@ -1114,11 +1096,11 @@ function runDraftAllSequential(companyId, onDone){
       const chObj = c.channels[chName];
       if(isCalls){
         if(!chObj.script){
-          const tpl = state.templates.find(t => t.channel === 'Calls');
+          const tpl = getChannelTemplate(chObj, 'Calls');
           if(tpl) chObj.script = tpl.text;
         }
       } else if(!chObj.sentText){
-        const tpl = state.templates.find(t => t.channel === chName);
+        const tpl = getChannelTemplate(chObj, chName);
         if(tpl) chObj.sentText = tpl.text;
       }
       doneFlags[chKey] = true;
@@ -1149,7 +1131,12 @@ function performInfoAction(companyId, type, onDone){
   delete aiErrorFlags[otherKey];
   render();
 
-  window.AI.fetchCompanyInfo(c.name)
+  // Always look the pinned template up fresh from state.templates by id — this is
+  // what makes edits to an attached template actually take effect on the next run,
+  // instead of whatever text existed at the moment it was attached.
+  const infoTpl = c.infoTemplateId ? state.templates.find(t => t.id === c.infoTemplateId) : null;
+
+  window.AI.fetchCompanyInfo(c.name, infoTpl ? infoTpl.text : "")
     .then(info => {
       stopLoadingCycle(key);
       c.info = info;
@@ -1274,7 +1261,10 @@ function openAttachTemplateList(companyId, channel){
 function applyAttachTemplate(companyId, channel, templateId){
   const c = state.companies.find(c=>c.id===companyId);
   const t = state.templates.find(t=>t.id===templateId);
-  if(c && t){ c.channels[channel].attachments = [`Template: ${t.name}`]; }
+  if(c && t){
+    c.channels[channel].attachments = [`Template: ${t.name}`];
+    c.channels[channel].templateId = t.id; // pin the exact template — this is what all drafting/sending must read from
+  }
   closeModal();
   render();
 }
@@ -1285,12 +1275,16 @@ function triggerFilePick(companyId, channel){
 function handleFileSelect(event, companyId, channel){
   const c = state.companies.find(c=>c.id===companyId);
   const file = (event.target.files || [])[0];
-  if(file) c.channels[channel].attachments = [file.name];
+  if(file){
+    c.channels[channel].attachments = [file.name];
+    c.channels[channel].templateId = null; // a plain file replaces any pinned template
+  }
   render();
 }
 function removeAttachment(companyId, channel, idx){
   const c = state.companies.find(c=>c.id===companyId);
   c.channels[channel].attachments.splice(idx,1);
+  c.channels[channel].templateId = null; // no attachment left, so nothing is pinned anymore
   render();
 }
 
@@ -1437,7 +1431,10 @@ function addCompany(){
   CHANNEL_ORDER.forEach(ch => {
     channels[ch] = blankChannel(ch);
     const tpl = state.templates.find(t => t.channel === ch);
-    if(tpl) channels[ch].attachments.push(`Template: ${tpl.name}`);
+    if(tpl){
+      channels[ch].attachments.push(`Template: ${tpl.name}`);
+      channels[ch].templateId = tpl.id; // pin it so future edits to this template are picked up automatically
+    }
   });
   const infoTpl = state.templates.find(t => t.channel === 'Info');
   state.companies.push({ id, name, expanded:true, info:"", infoTemplateId: infoTpl ? infoTpl.id : null, channels });
