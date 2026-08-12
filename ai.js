@@ -28,7 +28,15 @@
  *
  * Everything else in index.html talks to this file through two globals:
  *   window.AI.fetchCompanyInfo(companyName) -> Promise<string>
- *   window.AI.fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }) -> Promise<string>
+ *   window.AI.fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject }) -> Promise<{ subject: string, text: string }>
+ *
+ * fetchDraft always resolves to a { subject, text } pair now. For Email, the
+ * model is asked to write both a personalized subject line and the body in
+ * one call, using a delimiter format that's parsed back apart in this file
+ * (see SUBJECT_MARKER / BODY_MARKER below) — index.html then puts `subject`
+ * into ch.subject and `text` into ch.sentText, and Send uses ch.subject.
+ * For every other channel `subject` just comes back as "" and only `text`
+ * matters (there's no subject concept for iMessage/Viber/Calls).
  */
 
 (function () {
@@ -119,6 +127,30 @@
     return text.trim();
   }
 
+  // Delimiters the Email prompt asks the model to wrap its subject/body in,
+  // and the matching parser. Using unlikely-to-collide markers (rather than
+  // asking for raw JSON) because the body is free-form multi-line text and
+  // models are much more reliable at echoing back a literal marker line than
+  // at producing valid escaped JSON for a long paragraph.
+  const SUBJECT_MARKER = "===SUBJECT===";
+  const BODY_MARKER = "===BODY===";
+
+  // Pulls { subject, text } back out of a SUBJECT_MARKER/BODY_MARKER-formatted
+  // reply. Falls back gracefully if the model didn't follow the format
+  // exactly (still returns something usable rather than throwing), so a
+  // slightly-off model reply degrades to "whole thing goes in the body"
+  // instead of failing the draft entirely.
+  function parseSubjectAndBody(raw) {
+    const subjIdx = raw.indexOf(SUBJECT_MARKER);
+    const bodyIdx = raw.indexOf(BODY_MARKER);
+    if (subjIdx === -1 || bodyIdx === -1 || bodyIdx < subjIdx) {
+      return { subject: "", text: raw.trim() };
+    }
+    const subject = raw.slice(subjIdx + SUBJECT_MARKER.length, bodyIdx).trim();
+    const text = raw.slice(bodyIdx + BODY_MARKER.length).trim();
+    return { subject, text: text || raw.trim() };
+  }
+
   async function fetchCompanyInfo(companyName, researchTemplateText, debug) {
     const key = window.APIKeys ? window.APIKeys.getActiveKey(INFO_SERVICE_ID) : "";
     if (!key) {
@@ -160,8 +192,9 @@
    *   language       - optional language name (from the channel's Language field)
    *                     to write the draft in \u2014 e.g. "Lithuanian". Empty/omitted
    *                     means no instruction is added and the model picks its default.
-   * Output: plain text — the drafted message body (or, for Calls, the script
-   * to read out loud). Never includes a subject line in the body itself.
+   * Output: { subject, text }. For Email, subject is the AI-personalized subject
+   * line and text is the body (subject is never repeated inside the body). For
+   * every other channel subject is "" and text is the message body / call script.
    */
   async function fetchDraft({ companyName, companyInfo, channel, templateText, templateSubject, language }, debug) {
     const svc = CHANNEL_DRAFT_SERVICE[channel];
@@ -217,16 +250,26 @@
       );
     }
 
+    const isEmail = channel === "Email";
+
     if (isCall) {
       parts.push(
         `Write only the final call script \u2014 what to actually say out loud on the phone, 3\u20136 sentences, ` +
           `natural spoken language. Plain text only. No labels, no markdown, no stage directions, no explanations.`
       );
+    } else if (isEmail) {
+      parts.push(
+        `Write a personalized subject line AND the message body \u2014 both should reference something ` +
+          `specific and true about this company, not be generic.` +
+          (templateSubject ? ` Use this as a guide/starting point for the subject: "${fill(templateSubject)}".` : "") +
+          `\n\nReply in EXACTLY this format and nothing else \u2014 no preamble, no markdown, no extra commentary ` +
+          `before or after:\n\n${SUBJECT_MARKER}\n<the subject line, one line, plain text>\n${BODY_MARKER}\n` +
+          `<the full email body, plain text, no labels, no placeholders left unfilled>`
+      );
     } else {
       parts.push(
-        `Write only the final message body text (not the subject line). Plain text only \u2014 no labels, ` +
-          `no markdown, no explanations, no placeholders left unfilled.` +
-          (templateSubject ? ` (Subject line is handled separately \u2014 don't repeat it in the body.)` : "")
+        `Write only the final message body text. Plain text only \u2014 no labels, ` +
+          `no markdown, no explanations, no placeholders left unfilled.`
       );
     }
 
@@ -236,7 +279,8 @@
     }
 
     const prompt = parts.join("\n\n");
-    return callGroq(key, GROQ_DRAFT_MODEL, prompt, svc, debug);
+    const raw = await callGroq(key, GROQ_DRAFT_MODEL, prompt, svc, debug);
+    return isEmail ? parseSubjectAndBody(raw) : { subject: "", text: raw };
   }
 
   window.AI = { isConfigured, fetchCompanyInfo, fetchDraft };
