@@ -149,8 +149,13 @@
   .toggle-link.expanded:hover{background:var(--line-soft);}
   .toggle-link.collapsed{background:var(--blue-dim); color:var(--blue); border-color:rgba(90,143,214,.3);}
   .toggle-link.collapsed:hover{background:rgba(90,143,214,.22);}
-  .del-link{background:none; border:none; color:var(--text-faint); font-size:15px; cursor:pointer; padding:0 2px;}
-  .del-link:hover{color:var(--red);}
+  .del-link{
+    background:var(--surface-2); color:var(--text-dim); border:1px solid var(--line);
+    font-size:14px; line-height:1; cursor:pointer; padding:0; margin-left:2px;
+    width:22px; height:22px; border-radius:5px; display:inline-flex; align-items:center; justify-content:center;
+    flex-shrink:0; transition:background .12s, color .12s, border-color .12s;
+  }
+  .del-link:hover{background:var(--red-dim); color:var(--red); border-color:rgba(217,100,91,.4);}
   .send-all-btn{
     font-family:'IBM Plex Mono', monospace; font-size:11px; padding:5px 10px; border-radius:20px; cursor:pointer;
     border:1px solid transparent;
@@ -382,6 +387,49 @@
     overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
   }
   .modal-link-mirror-text.empty{ color:var(--text-faint); }
+  /* ---------- AI Status modal: Groq usage/credits summary ---------- */
+  .usage-panel{padding:0 14px;}
+  .usage-columns{display:flex; gap:10px; margin-bottom:12px;}
+  .usage-col{flex:1; min-width:0;}
+  .usage-col-head{
+    font-size:10px; text-transform:uppercase; letter-spacing:.06em; color:var(--text-faint);
+    padding:0 2px 6px; display:flex; align-items:center; gap:5px;
+  }
+  .usage-col-left .usage-col-head{color:var(--blue);}
+  .usage-col-right .usage-col-head{color:var(--green);}
+  .usage-row{
+    display:flex; flex-direction:column; gap:4px;
+    padding:8px 9px; border:1px solid var(--line-soft); border-radius:6px;
+    background:var(--surface-2); margin-bottom:6px; font-size:12px;
+  }
+  .usage-row.current{border-color:rgba(90,143,214,.5); background:var(--blue-dim);}
+  .usage-row-label{display:flex; align-items:center; gap:6px; min-width:0;}
+  .usage-row-icon{flex-shrink:0;}
+  .usage-row-name{color:var(--text); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; font-size:11.5px;}
+  .usage-row-tokens{font-family:'IBM Plex Mono', monospace; font-size:11px; color:var(--text-dim); white-space:nowrap;}
+  .usage-row-tokens b{color:var(--text); font-weight:600;}
+  .usage-row-tokens.none{color:var(--text-faint); font-style:italic;}
+  /* big centered "Searching Info" block \u2014 sits below the draft/send columns,
+     visually the anchor step everything else depends on */
+  .usage-info-block{
+    text-align:center; background:var(--surface-2); border:1px solid var(--line);
+    border-radius:8px; padding:14px 16px; margin-bottom:10px;
+  }
+  .usage-info-block.current{border-color:rgba(90,143,214,.5); background:var(--blue-dim);}
+  .usage-info-icon{font-size:20px; display:block; margin-bottom:4px;}
+  .usage-info-name{
+    font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:13px; color:var(--text); margin-bottom:4px;
+  }
+  .usage-info-tokens{font-family:'IBM Plex Mono', monospace; font-size:12.5px; color:var(--text-dim);}
+  .usage-info-tokens b{color:var(--text); font-weight:600; font-size:14px;}
+  .usage-info-tokens.none{color:var(--text-faint); font-style:italic;}
+  .usage-total{
+    display:flex; justify-content:space-between; align-items:center;
+    padding:9px 10px; margin-top:2px; margin-bottom:10px;
+    border-top:1px dashed var(--line); font-size:12px; color:var(--text-dim);
+  }
+  .usage-total b{font-family:'Space Grotesk', sans-serif; color:var(--text); font-size:14px;}
+  .usage-model-tag{font-size:10px; color:var(--text-faint); margin-left:auto; white-space:nowrap;}
   .modal-actions{padding:10px 14px 0; display:flex; justify-content:flex-end;}
   .modal-save-btn{
     background:var(--green-dim); color:var(--green); border:1px solid rgba(95,174,123,.3);
@@ -482,6 +530,10 @@
           <div class="modal-link-mirror-text" id="modalLinkMirrorText">&mdash;</div>
           <a class="modal-link-open" id="modalLinkMirrorOpen" href="#" target="_blank" rel="noopener">Open ↗</a>
         </div>
+      </div>
+      <div id="modalUsageSection" style="display:none;">
+        <div class="modal-subtitle" style="border-top:none; margin-top:0;">Groq usage this run</div>
+        <div class="usage-panel" id="modalUsagePanel"></div>
       </div>
       <div id="modalTextColumns" class="modal-text-columns">
         <div class="modal-text-col">
@@ -618,6 +670,113 @@ function connectionPillClass(v){
   return "pill-grey";
 }
 
+/* ---------- Groq credits/usage (AI Status modal) ----------
+   Every raw response we store (ch.aiOutput for Draft/Script, c.infoOutput for
+   Fetch/Generate Info) is the exact wire response from Groq — a normal
+   OpenAI-style chat completion body when the call succeeded, which always
+   carries a "usage" object (prompt_tokens / completion_tokens / total_tokens
+   — what Groq actually meters credits against). Pull that out to show real
+   numbers instead of the raw JSON blob. Returns null if the text isn't
+   parseable JSON or has no usage on it (e.g. it's a friendly error string). */
+function extractUsage(rawText){
+  if(!rawText) return null;
+  let obj;
+  try{ obj = JSON.parse(rawText); } catch(e){ return null; }
+  const u = obj && (obj.usage || (obj.x_groq && obj.x_groq.usage));
+  if(!u) return null;
+  return {
+    promptTokens: u.prompt_tokens,
+    completionTokens: u.completion_tokens,
+    totalTokens: u.total_tokens,
+    totalTime: u.total_time,
+    model: obj.model || ''
+  };
+}
+function usageTokensHtml(usage){
+  if(!usage) return `<span class="usage-row-tokens none">Not run yet</span>`;
+  const parts = [];
+  if(usage.promptTokens != null) parts.push(`${usage.promptTokens} in`);
+  if(usage.completionTokens != null) parts.push(`${usage.completionTokens} out`);
+  const total = usage.totalTokens != null ? usage.totalTokens : '';
+  return `<span class="usage-row-tokens">${parts.join(' + ')}${parts.length ? ' = ' : ''}<b>${total}</b> tokens</span>`;
+}
+// Left column = drafting (the Groq calls that actually cost credits), right
+// column = sending (Email over Gmail / simulated for the rest \u2014 no Groq
+// credits), matched row-for-row by channel. Searching Info sits underneath
+// as one big centered block since every draft depends on it running first.
+function buildUsagePanelHtml(company, currentChannel){
+  const totalTokensRef = { value: 0, model: '' };
+  // draft rows (also tallies totalTokensRef as it goes)
+  const draftRowsHtml = CHANNEL_ORDER.map(chName => {
+    const ch = company.channels[chName];
+    const usage = extractUsage(ch.aiOutput);
+    if(usage && usage.totalTokens) totalTokensRef.value += usage.totalTokens;
+    if(usage && usage.model) totalTokensRef.model = usage.model;
+    const icon = chName === 'Calls' ? '\uD83D\uDCDD' : '\u270F\uFE0F';
+    const name = chName === 'Calls' ? 'Calls \u2013 Script' : `${chName} \u2013 Draft`;
+    return `
+      <div class="usage-row ${chName === currentChannel ? 'current' : ''}">
+        <div class="usage-row-label">
+          <span class="usage-row-icon">${icon}</span>
+          <span class="usage-row-name">${name}</span>
+        </div>
+        ${usageTokensHtml(usage)}
+      </div>
+    `;
+  }).join('');
+
+  const sendRowsHtml = CHANNEL_ORDER.map(chName => {
+    const ch = company.channels[chName];
+    const sent = ch.status === 'Sent' || ch.status === 'Called';
+    return `
+      <div class="usage-row ${chName === currentChannel ? 'current' : ''}">
+        <div class="usage-row-label">
+          <span class="usage-row-icon">\uD83D\uDCE4</span>
+          <span class="usage-row-name">${chName} \u2013 Sending</span>
+        </div>
+        <span class="usage-row-tokens ${sent ? '' : 'none'}">${sent ? 'Sent \u2014 no credits used' : 'Not sent yet'}</span>
+      </div>
+    `;
+  }).join('');
+
+  const infoUsage = extractUsage(company.infoOutput);
+  if(infoUsage && infoUsage.totalTokens) totalTokensRef.value += infoUsage.totalTokens;
+  if(infoUsage && infoUsage.model) totalTokensRef.model = infoUsage.model;
+  const infoBlockHtml = `
+    <div class="usage-info-block ${currentChannel === '' ? 'current' : ''}">
+      <span class="usage-info-icon">\uD83D\uDD0D</span>
+      <div class="usage-info-name">Searching Info</div>
+      <div class="usage-info-tokens ${infoUsage ? '' : 'none'}">
+        ${infoUsage
+          ? `${infoUsage.promptTokens != null ? infoUsage.promptTokens + ' in' : ''}${infoUsage.completionTokens != null ? ' + ' + infoUsage.completionTokens + ' out' : ''} = <b>${infoUsage.totalTokens}</b> tokens`
+          : 'Not run yet'}
+      </div>
+    </div>
+  `;
+
+  const totalHtml = `
+    <div class="usage-total">
+      <span>Total this company \u2013 all AI calls</span>
+      <span><b>${totalTokensRef.value}</b> tokens${totalTokensRef.model ? `<span class="usage-model-tag">${escAttr(totalTokensRef.model)}</span>` : ''}</span>
+    </div>
+  `;
+
+  return `
+    <div class="usage-columns">
+      <div class="usage-col usage-col-left">
+        <div class="usage-col-head">\u270F\uFE0F Drafting</div>
+        ${draftRowsHtml}
+      </div>
+      <div class="usage-col usage-col-right">
+        <div class="usage-col-head">\uD83D\uDCE4 Sending</div>
+        ${sendRowsHtml}
+      </div>
+    </div>
+    ${infoBlockHtml}
+    ${totalHtml}
+  `;
+}
+
 // which apikeys.js service each channel's automation would use
 const CHANNEL_SERVICE_ID = { Email: "email", iMessage: "imessage", Viber: "viber", Calls: "calling" };
 function channelConnectionStatus(chName){
@@ -692,6 +851,26 @@ let aiErrorFlags = {}; // actionKey(...) -> error message string while a real AI
 let sendErrorFlags = {}; // actionKey(companyId, chName, 'send') -> error message string while a real Send (Email, via Gmail) has failed
 let replyCheckStatus = {}; // actionKey(companyId, chName, 'checkReply') -> 'checking' | 'notfound' | 'error' while a Check for Reply run is live/just finished
 let recentlyFoundReply = {}; // same key -> true for a few seconds right after a NEW reply is found, so the count can flash rainbow
+/* Anything worth losing on delete: company info, or any channel that's been
+   touched (a number/address typed in, a draft written, something sent,
+   a reply logged, etc). A totally blank freshly-added row has none of this,
+   so it can be deleted with no prompt \u2014 anything else asks for confirmation. */
+function companyHasData(company){
+  if(company.info && company.info.trim()) return true;
+  return CHANNEL_ORDER.some(chName => {
+    const ch = company.channels[chName];
+    if(!ch) return false;
+    if(ch.number || ch.address || ch.language) return true;
+    if(ch.aiInput || ch.aiOutput) return true;
+    if(ch.sentText || ch.subject || ch.script) return true;
+    if(ch.responseText || ch.responseLink || ch.gmailThreadId) return true;
+    if(ch.response && ch.response !== "\u2014") return true;
+    if(ch.status !== (chName === "Calls" ? "Uncalled" : "Not Sent")) return true;
+    if(ch.ai !== "Uncalled") return true;
+    if(ch.connection !== "Disconnected") return true;
+    return false;
+  });
+}
 function companyContactMissing(company){
   return CHANNEL_ORDER.some(chName => {
     if(chName === 'Calls') return false;
@@ -955,7 +1134,7 @@ function renderBody(){
             <span class="company-name-text" onclick="toggleExpand('${company.id}')">${company.name}</span>
             ${company.expanded ? `<button class="send-all-btn ${automateBusy[company.id] ? 'running' : (sendAllDone(company) ? 'complete' : (companyContactMissing(company) ? 'error' : 'pending'))}" onclick="runAutomateAll('${company.id}')" ${automateBusy[company.id] || sendAllDone(company) ? 'disabled' : ''} title="${companyContactMissing(company) && !automateBusy[company.id] ? 'Some channels are missing a number or address \u2013 see the Send buttons below' : 'Fetch Info \u2192 Draft All \u2192 Send All'}">${automateBusy[company.id] ? `<span class="btn-spinner"></span>${automateStage[company.id] || 'Running...'}` : (sendAllDone(company) ? '\u2705 All Sent!' : (companyContactMissing(company) ? '\u26a0\ufe0f Automate' : '\u26a1 Automate'))}</button>` : ``}
             <button class="toggle-link ${company.expanded ? 'expanded' : 'collapsed'}" onclick="toggleExpand('${company.id}')">${company.expanded ? 'Show Less' : 'Show More'}</button>
-            <button class="del-link" onclick="deleteCompany('${company.id}')" title="Remove">&times;</button>
+            <button class="del-link" onclick="deleteCompany('${company.id}')" title="Delete company">&times;</button>
           </div>
         </td>
         <td class="actions-cell">
@@ -1079,6 +1258,9 @@ function toggleExpand(id){
   render();
 }
 function deleteCompany(id){
+  const company = state.companies.find(c=>c.id===id);
+  if(!company) return;
+  if(companyHasData(company) && !confirm(`Are you sure you want to delete "${company.name}"? This will permanently remove its info, contact details, and any drafts or send history.`)) return;
   state.companies = state.companies.filter(c=>c.id!==id);
   render();
 }
@@ -1968,10 +2150,17 @@ function performInfoAction(companyId, type, onDone){
   // instead of whatever text existed at the moment it was attached.
   const infoTpl = c.infoTemplateId ? state.templates.find(t => t.id === c.infoTemplateId) : null;
 
-  window.AI.fetchCompanyInfo(c.name, infoTpl ? infoTpl.text : "")
+  // same "capture the exact wire traffic" convention runAction uses for
+  // Draft/Script — lets the AI Status popup show real Groq usage/credits
+  // for the Info search too, not just the drafting calls.
+  const debug = {};
+
+  window.AI.fetchCompanyInfo(c.name, infoTpl ? infoTpl.text : "", debug)
     .then(info => {
       stopLoadingCycle(key);
       c.info = info;
+      c.infoInput = debug.request || '';
+      c.infoOutput = debug.response || '';
       applyExtractedContacts(c, info);
       // Fetch/Generate Info already silently fills in language + email behind
       // the scenes via applyExtractedContacts above \u2014 this just gives that
@@ -1993,6 +2182,8 @@ function performInfoAction(companyId, type, onDone){
       stopLoadingCycle(key);
       delete btnBusy[key];
       aiErrorFlags[key] = (err && err.message) ? err.message : 'AI request failed';
+      c.infoInput = debug.request || '';
+      c.infoOutput = debug.response || aiErrorFlags[key];
       // if this was part of an Automate run, don't leave it spinning forever on failure
       if(automateBusy[companyId]){
         automateBusy[companyId] = false;
@@ -2183,6 +2374,8 @@ function openModal(companyId, channel, field){
   const linkMirrorText = document.getElementById('modalLinkMirrorText');
   const linkMirrorOpen = document.getElementById('modalLinkMirrorOpen');
   const checkReplyBtn = document.getElementById('modalCheckReplyBtn');
+  const usageSection = document.getElementById('modalUsageSection');
+  const usagePanel = document.getElementById('modalUsagePanel');
 
   retryBtn.style.display = "none";
   checkReplyBtn.style.display = "none";
@@ -2190,6 +2383,7 @@ function openModal(companyId, channel, field){
   textSection2.style.display = "none";
   linkRow.style.display = "none";
   linkMirrorRow.style.display = "none";
+  usageSection.style.display = "none";
   // the AI Input/Output popup gets a wider sheet so the two columns have room
   document.querySelector('.modal-sheet').classList.toggle('wide', field === 'ai');
 
@@ -2199,6 +2393,8 @@ function openModal(companyId, channel, field){
     document.getElementById('modalTitle').textContent = contactBlocked ? `${channel} \u2013 Error` : `${channel} \u2013 AI`;
     optionsWrap.style.display = "none";
     textSection.style.display = "block";
+    usageSection.style.display = "block";
+    usagePanel.innerHTML = buildUsagePanelHtml(c, channel);
     textSubtitle.textContent = "Input";
     textArea.value = ch.aiInput || "";
     textArea.placeholder = "Nothing sent yet \u2014 run Draft/Script to see the exact request sent to the AI here.";
