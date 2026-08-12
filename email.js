@@ -9,10 +9,9 @@
  * call.
  *
  * window.EmailSender.sendEmail({ to, subject, text }) -> Promise<{ ok:true, id, threadId, from }>
- * `threadId` is Gmail's thread id for the sent message and `from` is the
- * sending account's address \u2014 index.html uses both to build a direct link
- * to the thread in Gmail (the Response modal's link) that works regardless
- * of which Google account slot this one happens to be signed into.
+ * `threadId` is Gmail's thread id for the sent message \u2014 index.html uses it
+ * (combined with the "Gmail slot (u/N)" setting in the header) to build a
+ * direct link to the thread in Gmail for the Response modal's link.
  * Rejects with a readable Error on failure (missing recipient, network
  * error, Gmail API error, or the backend not being set up yet).
  */
