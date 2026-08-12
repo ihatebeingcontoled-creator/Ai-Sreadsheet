@@ -336,6 +336,10 @@
     <div>
       <div class="eyebrow">Cold Outreach / Ledger</div>
       <h1>Outreach Tracker</h1>
+      <div style="display:flex; align-items:center; gap:6px; margin-top:8px; font-family:'IBM Plex Mono',monospace; font-size:11.5px; color:#98a0a7;">
+        <label for="gmailSlotInput" title="The N in mail.google.com/mail/u/N/ for your sending Gmail account. Used to build the Fetch Link / Response links below \u2014 change this any time that account's position among your signed-in Google accounts changes.">Gmail slot (u/N):</label>
+        <input id="gmailSlotInput" type="text" inputmode="numeric" style="width:36px; background:#14171a; border:1px solid #3a4148; color:#e9e6e0; font-family:inherit; font-size:inherit; padding:3px 6px; border-radius:6px; text-align:center;" value="0" onchange="updateGmailAccountSlot(this.value)" />
+      </div>
     </div>
     <div id="apiKeysBarSlot"></div>
   </div>
@@ -469,6 +473,13 @@ function getChannelTemplate(chObj, chName){
 
 let state = {
   companies: [],
+  // the "N" in mail.google.com/mail/u/N/ for your sending Gmail account \u2014
+  // used to build the Fetch Link / auto-filled Response links. Numeric only;
+  // Gmail doesn't reliably resolve that URL slot by email address, so this
+  // is a plain editable setting instead (see the input next to the title)
+  // rather than something guessed automatically. Change it any time your
+  // account's position among your signed-in Google accounts changes.
+  gmailAccountSlot: "0",
   templates: [
     { id:"t1", channel:"Email", name:"Email", subject:"Quick question about {{company}}", text:"Hi, I'm a 13-year-old developer from Kaunas — I built an AI chat widget for businesses like yours and wanted to share a quick demo." },
     { id:"t2", channel:"iMessage", name:"iMessage", subject:"", text:"Hi! Saw your business online — I built an AI assistant that could help answer customer questions automatically. Mind if I send a quick demo link?" },
@@ -620,6 +631,21 @@ function sendAllDone(company){
     return st === "Sent" || st === "Called";
   });
 }
+// Response-link helpers for the "Fetch Link" button. The link is considered
+// "done" only when it matches what the CURRENT gmailThreadId + Gmail slot
+// setting would produce \u2014 so it automatically pops back to a clickable
+// pending state (instead of staying falsely checked off) if you change the
+// u/N setting or send a fresh email that gets a new thread id.
+function expectedGmailLink(ch){
+  if(!ch || !ch.gmailThreadId) return '';
+  const slot = (state.gmailAccountSlot || '').trim() || '0';
+  return `https://mail.google.com/mail/u/${slot}/#all/${ch.gmailThreadId}`;
+}
+function fetchLinkDone(company){
+  const ch = company.channels['Email'];
+  const expected = expectedGmailLink(ch);
+  return !!expected && ch.responseLink === expected;
+}
 
 function aggregate(company){
   const chans = CHANNEL_ORDER.map(c => company.channels[c]);
@@ -648,10 +674,24 @@ function healthClass(agg){
 
 function render(){
   renderStats();
+  renderGmailSlotInput();
   renderTemplates();
   renderBody();
   // autosave everything on every render, so nothing is ever lost
   if(window.AppStorage) window.AppStorage.save({ state, nextId, nextTemplateId });
+}
+
+// Keeps the "Gmail slot (u/N)" input in the header in sync with state \u2014
+// guarded by the activeElement check so it doesn't stomp on you mid-keystroke
+// if some background render (e.g. a loading-cycle tick elsewhere) fires
+// while you're typing in it.
+function renderGmailSlotInput(){
+  const el = document.getElementById('gmailSlotInput');
+  if(el && document.activeElement !== el) el.value = state.gmailAccountSlot || '0';
+}
+function updateGmailAccountSlot(value){
+  state.gmailAccountSlot = (value || '').trim() || '0';
+  render();
 }
 
 function renderStats(){
@@ -762,6 +802,7 @@ function renderBody(){
             ${renderActionBtn(actionKey(company.id,'','fetchInfo'), 'fetchInfo', '🔍 Fetch Info', '\u2705 Fetched', !!company.info, aiErrorFlags[actionKey(company.id,'','fetchInfo')], `runAction('fetchInfo','${company.id}','')`)}
             ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runDraftAllSequential('${company.id}')`, !company.info, "Fetch or generate company info first")}
             ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
+            ${renderActionBtn(actionKey(company.id,'','fetchLink'), 'fetchLink', '🔗 Fetch Link', '\u2705 Fetched', fetchLinkDone(company), aiErrorFlags[actionKey(company.id,'','fetchLink')], `performFetchLinkAction('${company.id}')`, !company.channels['Email'].gmailThreadId, "Send the Email channel at least once first")}
           ` : `\u2014`}
         </td>
         <td class="agg-cell${agg.sent===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sent}/${agg.total}</td>
@@ -920,6 +961,7 @@ const REAL_AI_LOADING_LABEL = {
   fetchInfo: "Contacting Groq...",
   fetchAllInfo: "Contacting Groq...",
   generateInfo: "Contacting Groq...",
+  fetchLink: "Building link...",
 };
 let loadingStage = {}; // key -> current stage index
 let loadingIntervals = {}; // key -> interval id
@@ -1096,12 +1138,11 @@ function performSendAction(companyId, chName){
         // instead of you having to go dig for it in your inbox.
         if(result && result.threadId){
           ch.gmailThreadId = result.threadId;
-          // /u/<email>/ instead of /u/0/ \u2014 Gmail accepts the account's actual
-          // address in that slot, so this link keeps working even if this
-          // Google account isn't first in the browser's account list (or
-          // stops being first later).
-          const acctSlot = result.from ? encodeURIComponent(result.from) : '0';
-          ch.responseLink = `https://mail.google.com/mail/u/${acctSlot}/#all/${result.threadId}`;
+          // numeric u/N slot from the header setting, not the email-in-path
+          // trick \u2014 that didn't reliably resolve on Gmail's end, plain u/N
+          // (what you'd see in the address bar once you're in your inbox) does.
+          const slot = (state.gmailAccountSlot || '').trim() || '0';
+          ch.responseLink = `https://mail.google.com/mail/u/${slot}/#all/${result.threadId}`;
         }
         doneFlags[key] = true;
         btnBusy[key] = 'success';
@@ -1138,6 +1179,49 @@ function performSendAction(companyId, chName){
         resolve(true);
       }, 1000);
     }, LOADING_DURATION);
+  });
+}
+
+/* performFetchLinkAction — manual "(re)build the Response link" button, next
+ * to Fetch Info / Draft All / Send All. It's NOT a network call: the Gmail
+ * thread id (ch.gmailThreadId) is already saved on the Email channel from
+ * whenever it was last sent (see performSendAction above) \u2014 this just
+ * rebuilds ch.responseLink from that id + the current "Gmail slot (u/N)"
+ * header setting. That's the fix-it button for when the link is wrong
+ * (e.g. you changed the u/N setting, or a link was built before that
+ * setting existed) without having to resend anything. Unlike Fetch Info /
+ * Draft All / Send All this one does NOT lock itself into a permanent
+ * "done" state \u2014 it stays clickable so you can re-run it any time the
+ * u/N setting changes. Returns Promise<boolean> so Automate can wait on it.
+ */
+function performFetchLinkAction(companyId){
+  const key = actionKey(companyId, '', 'fetchLink');
+  if(btnBusy[key]) return Promise.resolve(false);
+
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels['Email'];
+  if(!ch || !ch.gmailThreadId){
+    aiErrorFlags[key] = 'No sent email yet \u2014 send the Email channel at least once first, then Fetch Link can build the thread link from it.';
+    render();
+    return Promise.resolve(false);
+  }
+  delete aiErrorFlags[key];
+
+  btnBusy[key] = 'loading';
+  render();
+
+  return new Promise(resolve => {
+    setTimeout(() => {
+      const slot = (state.gmailAccountSlot || '').trim() || '0';
+      ch.responseLink = `https://mail.google.com/mail/u/${slot}/#all/${ch.gmailThreadId}`;
+      btnBusy[key] = 'success';
+      render();
+      setTimeout(() => {
+        delete btnBusy[key];
+        render();
+        resolve(true);
+      }, 700);
+    }, 500);
   });
 }
 
@@ -1543,9 +1627,13 @@ function runAutomateAll(companyId){
       automateStage[companyId] = 'Sending messages...';
       render();
       runSendAllSequential(companyId, () => {
-        automateBusy[companyId] = false;
-        delete automateStage[companyId];
+        automateStage[companyId] = 'Fetching link...';
         render();
+        performFetchLinkAction(companyId).then(() => {
+          automateBusy[companyId] = false;
+          delete automateStage[companyId];
+          render();
+        });
       });
     });
   }
