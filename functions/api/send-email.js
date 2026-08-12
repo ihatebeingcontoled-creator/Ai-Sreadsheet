@@ -11,10 +11,11 @@
  * -> { error: "..." }  (non-200) on failure
  *
  * `from` is just GMAIL_SENDER_EMAIL echoed back \u2014 not a secret, it's already
- * visible in the From header of every email this sends. index.html uses it
- * (instead of a hardcoded /u/0/) to build a Gmail thread link that keeps
- * working no matter which position this account sits at in the browser's
- * Google account list.
+ * visible in the From header of every email this sends. It's currently
+ * unused by index.html (Gmail doesn't reliably resolve /u/<email>/ the way
+ * /u/<N>/ does, so the Response-link building there uses a plain numeric
+ * "Gmail slot" setting instead \u2014 see state.gmailAccountSlot / the header
+ * input in index.html). Kept here in case that changes.
  *
  * How it sends the email:
  *   Uses a Gmail account's OAuth2 *refresh token* (minted once, offline —
