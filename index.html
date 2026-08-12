@@ -711,6 +711,29 @@ function extractUsage(rawText){
   const model = (obj && obj.model) || (text.match(/"model"\s*:\s*"([^"]+)"/) || [])[1] || '';
   return { promptTokens, completionTokens, totalTokens, model };
 }
+// Feeds the API Keys modal's "Today" / "Past minute" usage panel (apikeys.js) —
+// pulls whatever token count is in a just-captured AI response and logs it
+// against the right service, so that panel's total covers info, every
+// drafting channel, and (once wired) sending, not just whichever key's
+// modal happens to be open.
+const DRAFT_SERVICE_BY_CHANNEL = {
+  Email: 'draftEmail',
+  iMessage: 'draftIMessage',
+  Viber: 'draftViber',
+  Calls: 'draftCalls',
+};
+function logDraftUsage(chName, rawResponse){
+  if(!window.APIKeys || !window.APIKeys.logUsage) return;
+  const svcId = DRAFT_SERVICE_BY_CHANNEL[chName];
+  if(!svcId) return;
+  const usage = extractUsage(rawResponse);
+  if(usage && usage.totalTokens) window.APIKeys.logUsage(svcId, usage.totalTokens);
+}
+function logInfoUsage(rawResponse){
+  if(!window.APIKeys || !window.APIKeys.logUsage) return;
+  const usage = extractUsage(rawResponse);
+  if(usage && usage.totalTokens) window.APIKeys.logUsage('info', usage.totalTokens);
+}
 function usageTokensHtml(usage){
   if(!usage) return `<span class="usage-row-tokens none">Not run yet</span>`;
   const parts = [];
@@ -1959,6 +1982,7 @@ function performDraftAction(companyId, chName, opts){
       }
       ch.aiInput = debug.request || '';
       ch.aiOutput = debug.response || '';
+      logDraftUsage(chName, ch.aiOutput);
       doneFlags[key] = true;
       btnBusy[key] = 'success';
       render();
@@ -1980,6 +2004,7 @@ function performDraftAction(companyId, chName, opts){
       // Groq (bad key, too large, etc). If it never got that far (no key configured
       // at all), fall back to the friendly error message so the box isn't empty.
       ch.aiOutput = debug.response || message;
+      logDraftUsage(chName, ch.aiOutput);
       // if this was part of an Automate / Draft All run, don't leave it spinning forever on failure
       if(automateBusy[companyId]){
         automateBusy[companyId] = false;
@@ -2207,6 +2232,7 @@ function performInfoAction(companyId, type, onDone){
       c.info = info;
       c.infoInput = debug.request || '';
       c.infoOutput = debug.response || '';
+      logInfoUsage(c.infoOutput);
       applyExtractedContacts(c, info);
       // Fetch/Generate Info already silently fills in language + email behind
       // the scenes via applyExtractedContacts above \u2014 this just gives that
@@ -2230,6 +2256,7 @@ function performInfoAction(companyId, type, onDone){
       aiErrorFlags[key] = (err && err.message) ? err.message : 'AI request failed';
       c.infoInput = debug.request || '';
       c.infoOutput = debug.response || aiErrorFlags[key];
+      logInfoUsage(c.infoOutput);
       // if this was part of an Automate run, don't leave it spinning forever on failure
       if(automateBusy[companyId]){
         automateBusy[companyId] = false;
