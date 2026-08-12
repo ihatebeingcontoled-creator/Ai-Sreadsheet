@@ -719,6 +719,18 @@ function usageTokensHtml(usage){
   const total = usage.totalTokens != null ? usage.totalTokens : '';
   return `<span class="usage-row-tokens">${parts.join(' + ')}${parts.length ? ' = ' : ''}<b>${total}</b> tokens</span>`;
 }
+// Same tally the usage-panel modal does, exposed standalone so the AI Status
+// column in the table can show a running credits total without opening the modal.
+function companyTotalTokens(company){
+  let total = 0;
+  const info = extractUsage(company.infoOutput);
+  if(info && info.totalTokens) total += info.totalTokens;
+  CHANNEL_ORDER.forEach(chName => {
+    const u = extractUsage(company.channels[chName].aiOutput);
+    if(u && u.totalTokens) total += u.totalTokens;
+  });
+  return total;
+}
 // Left column = drafting (the Groq calls that actually cost credits), right
 // column = sending (Email over Gmail / simulated for the rest \u2014 no Groq
 // credits), matched row-for-row by channel. Searching Info sits underneath
@@ -1184,7 +1196,12 @@ function renderBody(){
             <div class="link-agg-count">${agg.linked}/${agg.total} linked</div>
           </div>
         </td>
-        <td class="agg-cell">${agg.aiDone}/${agg.total}</td>
+        <td class="agg-cell">
+          <div class="link-agg-box">
+            <div>${agg.aiDone}/${agg.total}</div>
+            <div class="link-agg-count">${companyTotalTokens(company)} tokens</div>
+          </div>
+        </td>
         <td class="agg-cell${agg.draftConnected===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.draftConnected}/${agg.total}</td>
         <td class="agg-cell${agg.sendConnected===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sendConnected}/${agg.total}</td>
         <td class="agg-cell">
