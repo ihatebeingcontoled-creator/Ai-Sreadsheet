@@ -115,6 +115,12 @@
     cursor:col-resize; z-index:5; user-select:none; touch-action:none;
   }
   .col-resizer:hover, .col-resizer.resizing{ background:var(--blue); opacity:.5; }
+  /* column has been dragged down to (near) nothing \u2014 the handle itself stays
+     lit up blue (not just on hover) so it's obvious where to grab to pull the
+     column back open again */
+  .col-resizer.collapsed{ background:var(--blue); opacity:.85; width:6px; right:-2px; }
+  .col-resizer.collapsed:hover{ opacity:1; width:9px; }
+  th.col-collapsed{ padding-left:0; padding-right:0; }
   thead th{
     text-align:left; font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:11px;
     text-transform:uppercase; letter-spacing:.05em; color:var(--text-dim);
@@ -204,6 +210,40 @@
     display:inline-block; animation:btn-spin .6s linear infinite;
   }
   @keyframes btn-spin{ to{ transform:rotate(360deg); } }
+
+  /* ---------- "activating" pulse \u2014 used by Fetch Link / Fetch Number / Fetch Email
+     while they're doing their (brief, local) work, so it visibly reads as
+     "this button just fired" instead of the value silently changing. ---------- */
+  @keyframes activate-pulse{
+    0%{ box-shadow:0 0 0 0 rgba(217,164,65,.45); transform:scale(1); }
+    45%{ box-shadow:0 0 0 5px rgba(217,164,65,0); transform:scale(1.025); }
+    100%{ box-shadow:0 0 0 0 rgba(217,164,65,0); transform:scale(1); }
+  }
+  @keyframes activate-sweep{
+    0%{ background-position:0% 50%; }
+    100%{ background-position:200% 50%; }
+  }
+  .activating{
+    color:var(--amber) !important;
+    border-color:rgba(217,164,65,.5) !important;
+    background:linear-gradient(90deg, var(--amber-dim), rgba(217,164,65,.32), var(--amber-dim)) !important;
+    background-size:200% 100% !important;
+    animation:activate-pulse .7s ease-in-out infinite, activate-sweep 1.1s linear infinite;
+    cursor:default !important;
+  }
+  .action-btn.activating, .info-action-btn.activating{ display:flex; align-items:center; gap:6px; }
+  @keyframes link-pop{
+    0%{ transform:scale(.9); opacity:0; }
+    60%{ transform:scale(1.06); opacity:1; }
+    100%{ transform:scale(1); opacity:1; }
+  }
+  .action-btn.success, .action-btn.done{ animation:link-pop .3s ease-out; }
+  .link-agg-box{
+    border:1px solid var(--line); border-radius:6px; padding:6px;
+    display:flex; flex-direction:column; align-items:center; gap:4px;
+    background:var(--surface);
+  }
+  .link-agg-count{ font-size:11px; color:var(--text-dim); text-align:center; white-space:nowrap; }
 
   .text-preview-btn{
     display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
@@ -373,19 +413,19 @@
     <table id="ledgerTable">
       <thead>
         <tr>
-          <th style="width:150px;">Name<span class="col-resizer"></span></th>
-          <th style="width:130px;">Actions<span class="col-resizer"></span></th>
-          <th style="width:100px;">Status<span class="col-resizer"></span></th>
-          <th style="width:150px;">Response<span class="col-resizer"></span></th>
-          <th style="width:150px;">Sent Text<span class="col-resizer"></span></th>
-          <th style="width:110px;">AI Status<span class="col-resizer"></span></th>
-          <th style="width:130px;">Draft Connection<span class="col-resizer"></span></th>
-          <th style="width:130px;">Send Connection<span class="col-resizer"></span></th>
-          <th style="width:130px;">Language<span class="col-resizer"></span></th>
-          <th style="width:170px;">Attachments<span class="col-resizer"></span></th>
-          <th style="width:110px;">Number<span class="col-resizer"></span></th>
-          <th style="width:110px;">Address<span class="col-resizer"></span></th>
-          <th style="width:220px;">Info<span class="col-resizer"></span></th>
+          <th data-col="name" style="width:150px;">Name<span class="col-resizer"></span></th>
+          <th data-col="actions" style="width:130px;">Actions<span class="col-resizer"></span></th>
+          <th data-col="status" style="width:100px;">Status<span class="col-resizer"></span></th>
+          <th data-col="response" style="width:150px;">Response<span class="col-resizer"></span></th>
+          <th data-col="sentText" style="width:150px;">Sent Text<span class="col-resizer"></span></th>
+          <th data-col="aiStatus" style="width:110px;">AI Status<span class="col-resizer"></span></th>
+          <th data-col="draftConn" style="width:130px;">Draft Connection<span class="col-resizer"></span></th>
+          <th data-col="sendConn" style="width:130px;">Send Connection<span class="col-resizer"></span></th>
+          <th data-col="language" style="width:130px;">Language<span class="col-resizer"></span></th>
+          <th data-col="attachments" style="width:170px;">Attachments<span class="col-resizer"></span></th>
+          <th data-col="number" style="width:110px;">Number<span class="col-resizer"></span></th>
+          <th data-col="address" style="width:110px;">Address<span class="col-resizer"></span></th>
+          <th data-col="info" style="width:220px;">Info<span class="col-resizer"></span></th>
         </tr>
       </thead>
       <tbody id="ledgerBody"></tbody>
@@ -646,6 +686,30 @@ function fetchLinkDone(company){
   const expected = expectedGmailLink(ch);
   return !!expected && ch.responseLink === expected;
 }
+// Compact version of the Fetch Link button that lives inside the Response
+// column's little aggregate box (instead of the big top-row Actions column)
+// \u2014 same underlying performFetchLinkAction, just styled/sized to match
+// the other small centered agg-cell buttons (Fetch Language / Number / Email).
+function fetchLinkAggBtn(company){
+  const key = actionKey(company.id, '', 'fetchLink');
+  const ch = company.channels['Email'];
+  const busy = btnBusy[key];
+  const baseStyle = "width:100%; text-align:center;";
+  if(busy === 'loading') return `<button class="info-action-btn activating" style="${baseStyle}" disabled><span class="btn-spinner"></span> Fetching Link...</button>`;
+  if(busy === 'success') return `<button class="info-action-btn" style="${baseStyle} color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim); cursor:default;" disabled>\u2705 Linked!</button>`;
+  if(!ch.gmailThreadId){
+    return `<button class="info-action-btn" style="${baseStyle} opacity:.5; cursor:not-allowed;" disabled title="Send the Email channel first, then this can build the thread link">\uD83D\uDD17 Chat Link</button>`;
+  }
+  const err = aiErrorFlags[key];
+  const done = fetchLinkDone(company);
+  if(done){
+    return `<button class="info-action-btn" style="${baseStyle} color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim);" onclick="performFetchLinkAction('${company.id}')" title="Response link is up to date \u2014 click to rebuild anyway">\uD83D\uDD17 Linked</button>`;
+  }
+  if(err){
+    return `<button class="info-action-btn" style="${baseStyle} color:var(--red); border-color:rgba(217,100,91,.3); background:var(--red-dim);" onclick="performFetchLinkAction('${company.id}')" title="${escAttr(err)}">\u26a0\ufe0f Chat Link</button>`;
+  }
+  return `<button class="info-action-btn" style="${baseStyle} color:var(--amber); border-color:rgba(217,164,65,.3); background:var(--amber-dim);" onclick="performFetchLinkAction('${company.id}')" title="Build/refresh the Gmail thread link used by Response \u2192 Open">\uD83D\uDD17 Chat Link</button>`;
+}
 
 function aggregate(company){
   const chans = CHANNEL_ORDER.map(c => company.channels[c]);
@@ -655,7 +719,13 @@ function aggregate(company){
     const c = company.channels[chName];
     return chName === 'Calls' ? !!c.script : !!c.sentText;
   }).length;
-  return { sent, responded, aiDone, total: chans.length };
+  // Draft/Send Connection are per-channel API-key status (see channelDraftConnectionStatus /
+  // channelConnectionStatus above) \u2014 same across every company since it's a global key,
+  // but counted per CHANNEL_ORDER so it stays correct as X/4 if more channels get added.
+  const draftConnected = CHANNEL_ORDER.filter(chName => channelDraftConnectionStatus(chName) === "Connected").length;
+  const sendConnected = CHANNEL_ORDER.filter(chName => channelConnectionStatus(chName) === "Connected").length;
+  const linked = chans.filter(c => (c.responseLink||'').trim()).length;
+  return { sent, responded, aiDone, draftConnected, sendConnected, linked, total: chans.length };
 }
 function uniqueFieldValues(company, field){
   const vals = CHANNEL_ORDER.map(chName => (company.channels[chName][field] || "").trim()).filter(Boolean);
@@ -802,25 +872,29 @@ function renderBody(){
             ${renderActionBtn(actionKey(company.id,'','fetchInfo'), 'fetchInfo', '🔍 Fetch Info', '\u2705 Fetched', !!company.info, aiErrorFlags[actionKey(company.id,'','fetchInfo')], `runAction('fetchInfo','${company.id}','')`)}
             ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runDraftAllSequential('${company.id}')`, !company.info, "Fetch or generate company info first")}
             ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
-            ${renderActionBtn(actionKey(company.id,'','fetchLink'), 'fetchLink', '🔗 Fetch Link', '\u2705 Fetched', fetchLinkDone(company), aiErrorFlags[actionKey(company.id,'','fetchLink')], `performFetchLinkAction('${company.id}')`, !company.channels['Email'].gmailThreadId, "Send the Email channel at least once first")}
           ` : `\u2014`}
         </td>
         <td class="agg-cell${agg.sent===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sent}/${agg.total}</td>
         <td class="agg-cell">${agg.responded}/${agg.total}</td>
-        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell${agg.linked===agg.total && agg.total>0 ? ' agg-complete' : ''}">
+          <div class="link-agg-box">
+            ${fetchLinkAggBtn(company)}
+            <div class="link-agg-count">${agg.linked}/${agg.total} linked</div>
+          </div>
+        </td>
         <td class="agg-cell">${agg.aiDone}/${agg.total}</td>
-        <td class="agg-cell">\u2014</td>
-        <td class="agg-cell">\u2014</td>
+        <td class="agg-cell${agg.draftConnected===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.draftConnected}/${agg.total}</td>
+        <td class="agg-cell${agg.sendConnected===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sendConnected}/${agg.total}</td>
         <td class="agg-cell">
-          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchLanguageForCompany('${company.id}')" title="Pulls a language out of this company's Info text and fills it into every channel">${languageFetchBtnLabel(company.id)}</button>
+          <button class="info-action-btn ${fetchActivating['lang|'+company.id] ? 'activating' : ''}" style="width:100%; text-align:center;" onclick="fetchLanguageForCompany('${company.id}')" title="Pulls a language out of this company's Info text and fills it into every channel">${languageFetchBtnLabel(company.id)}</button>
         </td>
         <td class="agg-cell">\u2014</td>
         <td class="agg-cell">
-          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchNumberForCompany('${company.id}')" title="Pulls a phone number out of this company's Info text and fills it into every channel">${numberFetchBtnLabel(company.id)}</button>
+          <button class="info-action-btn ${fetchActivating['num|'+company.id] ? 'activating' : ''}" style="width:100%; text-align:center;" onclick="fetchNumberForCompany('${company.id}')" title="Pulls a phone number out of this company's Info text and fills it into every channel">${numberFetchBtnLabel(company.id)}</button>
           ${window.SafeSend ? window.SafeSend.numberBtnHtml(company.id, uniqueFieldValues(company,'number')[0]||'') : ''}
         </td>
         <td class="agg-cell">
-          <button class="info-action-btn" style="width:100%; text-align:center;" onclick="fetchEmailForCompany('${company.id}')" title="Pulls an email address out of this company's Info text and fills it into every channel">${emailFetchBtnLabel(company.id)}</button>
+          <button class="info-action-btn ${fetchActivating['email|'+company.id] ? 'activating' : ''}" style="width:100%; text-align:center;" onclick="fetchEmailForCompany('${company.id}')" title="Pulls an email address out of this company's Info text and fills it into every channel">${emailFetchBtnLabel(company.id)}</button>
           ${window.SafeSend ? window.SafeSend.emailBtnHtml(company.id, uniqueFieldValues(company,'address')[0]||'') : ''}
         </td>
         <td class="info-cell">
@@ -872,7 +946,9 @@ function renderBody(){
             <span class="cell-tag ${statusPillClass(ch.status)}" title="Reflects real Send/Call actions \u2013 not editable">${ch.status}</span>
           </td>
           <td>
-            <button class="cell-btn ${responseDisplay(ch).cls}" onclick="openModal('${company.id}','${chName}','response')">${responseDisplay(ch).label}</button>
+            <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
+              <button class="cell-btn ${responseDisplay(ch).cls}" onclick="openModal('${company.id}','${chName}','response')">${responseDisplay(ch).label}</button>
+            </div>
           </td>
           <td>
             <button class="text-preview-btn ${sentPreview?'':'empty'}" onclick="openModal('${company.id}','${chName}','sentText')">${sentPreview ? escAttr(sentPreview) : 'Add sent text...'}</button>
@@ -1486,14 +1562,23 @@ function applyExtractedContacts(company, infoText){
 // there's always visible confirmation of what happened.
 let fetchFeedback = {}; // 'num|<companyId>' or 'email|<companyId>' -> 'success' | 'none'
 const FETCH_FEEDBACK_MS = 1800;
+// fetchActivating drives the brief pulsing "activating" state on Fetch Number /
+// Fetch Email (and Fetch Language) right when the button fires \u2014 these run
+// near-instantly under the hood (it's just a regex over c.info), so without
+// this they'd never visibly "do" anything. ACTIVATE_MS is how long that pulse
+// plays before the real success/none feedback takes over.
+let fetchActivating = {}; // 'num|<companyId>' etc -> true while pulsing
+const ACTIVATE_MS = 550;
 
 function numberFetchBtnLabel(companyId){
+  if(fetchActivating['num|' + companyId]) return "\u260E\uFE0F Fetching Number...";
   const state_ = fetchFeedback['num|' + companyId];
   if(state_ === 'success') return "\u2705 Number Fetched!";
   if(state_ === 'none') return "\u26a0\ufe0f No Number Found";
   return "\u260E\uFE0F Fetch Number";
 }
 function emailFetchBtnLabel(companyId){
+  if(fetchActivating['email|' + companyId]) return "\u2709\uFE0F Fetching Email...";
   const state_ = fetchFeedback['email|' + companyId];
   if(state_ === 'success') return "\u2705 Email Fetched!";
   if(state_ === 'none') return "\u26a0\ufe0f No Email Found";
@@ -1507,29 +1592,52 @@ function flashFetchFeedback(key, result){
     render();
   }, FETCH_FEEDBACK_MS);
 }
-function fetchNumberForCompany(companyId){
-  const c = state.companies.find(c=>c.id===companyId);
-  if(!c) return;
-  const phone = extractPhoneFromInfo(c.info);
-  if(!phone){
-    flashFetchFeedback('num|' + companyId, 'none');
-    return;
-  }
-  CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'number', phone));
-  flashFetchFeedback('num|' + companyId, 'success');
+// Both fetch* functions below now take an optional onDone callback so
+// Automate can actually fire these buttons (with the same pulsing
+// "activating" animation you get clicking them by hand) and wait for each
+// one to finish before moving on to drafting.
+function fetchNumberForCompany(companyId, onDone){
+  const actKey = 'num|' + companyId;
+  if(fetchActivating[actKey]){ if(onDone) onDone(); return; }
+  fetchActivating[actKey] = true;
+  render();
+  setTimeout(() => {
+    delete fetchActivating[actKey];
+    const c = state.companies.find(c=>c.id===companyId);
+    if(!c){ render(); if(onDone) onDone(); return; }
+    const phone = extractPhoneFromInfo(c.info);
+    if(!phone){
+      flashFetchFeedback(actKey, 'none');
+      if(onDone) onDone();
+      return;
+    }
+    CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'number', phone));
+    flashFetchFeedback(actKey, 'success');
+    if(onDone) onDone();
+  }, ACTIVATE_MS);
 }
-function fetchEmailForCompany(companyId){
-  const c = state.companies.find(c=>c.id===companyId);
-  if(!c) return;
-  const email = extractEmailFromInfo(c.info);
-  if(!email){
-    flashFetchFeedback('email|' + companyId, 'none');
-    return;
-  }
-  CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'address', email));
-  flashFetchFeedback('email|' + companyId, 'success');
+function fetchEmailForCompany(companyId, onDone){
+  const actKey = 'email|' + companyId;
+  if(fetchActivating[actKey]){ if(onDone) onDone(); return; }
+  fetchActivating[actKey] = true;
+  render();
+  setTimeout(() => {
+    delete fetchActivating[actKey];
+    const c = state.companies.find(c=>c.id===companyId);
+    if(!c){ render(); if(onDone) onDone(); return; }
+    const email = extractEmailFromInfo(c.info);
+    if(!email){
+      flashFetchFeedback(actKey, 'none');
+      if(onDone) onDone();
+      return;
+    }
+    CHANNEL_ORDER.forEach(chName => updateFieldSilent(companyId, chName, 'address', email));
+    flashFetchFeedback(actKey, 'success');
+    if(onDone) onDone();
+  }, ACTIVATE_MS);
 }
 function languageFetchBtnLabel(companyId){
+  if(fetchActivating['lang|' + companyId]) return "\uD83C\uDF10 Fetching Language...";
   const state_ = fetchFeedback['lang|' + companyId];
   if(state_ === 'success') return "\u2705 Language Fetched!";
   if(state_ === 'none') return "\u26a0\ufe0f No Language Found";
@@ -1583,6 +1691,12 @@ function performInfoAction(companyId, type, onDone){
       stopLoadingCycle(key);
       c.info = info;
       applyExtractedContacts(c, info);
+      // Fetch/Generate Info already silently fills in language + email behind
+      // the scenes via applyExtractedContacts above \u2014 this just gives that
+      // the same visible "Fetched!" flash the manual Fetch Language / Fetch
+      // Email buttons show, so it's not a silent change during Automate.
+      flashFetchFeedback('lang|' + companyId, extractLanguageFromInfo(info) ? 'success' : 'none');
+      flashFetchFeedback('email|' + companyId, extractEmailFromInfo(info) ? 'success' : 'none');
       doneFlags[key] = true;
       doneFlags[otherKey] = true; // same underlying result, so the other button shows done too
       btnBusy[key] = 'success';
@@ -1621,18 +1735,29 @@ function runAutomateAll(companyId){
   render();
 
   function afterInfo(){
-    automateStage[companyId] = 'Drafting messages...';
+    // Actually fire the Fetch Number / Fetch Email buttons (same pulsing
+    // "activating" animation as a manual click) instead of just relying on
+    // the silent auto-fill that already happened inside Fetch/Generate Info.
+    automateStage[companyId] = 'Fetching number...';
     render();
-    runDraftAllSequential(companyId, () => {
-      automateStage[companyId] = 'Sending messages...';
+    fetchNumberForCompany(companyId, () => {
+      automateStage[companyId] = 'Fetching email...';
       render();
-      runSendAllSequential(companyId, () => {
-        automateStage[companyId] = 'Fetching link...';
+      fetchEmailForCompany(companyId, () => {
+        automateStage[companyId] = 'Drafting messages...';
         render();
-        performFetchLinkAction(companyId).then(() => {
-          automateBusy[companyId] = false;
-          delete automateStage[companyId];
+        runDraftAllSequential(companyId, () => {
+          automateStage[companyId] = 'Sending messages...';
           render();
+          runSendAllSequential(companyId, () => {
+            automateStage[companyId] = 'Fetching link...';
+            render();
+            performFetchLinkAction(companyId).then(() => {
+              automateBusy[companyId] = false;
+              delete automateStage[companyId];
+              render();
+            });
+          });
         });
       });
     });
@@ -1941,10 +2066,89 @@ function addCompany(){
   render();
 }
 
-/* ---------- resizable columns: drag the handle on the right edge of any header ---------- */
+/* ---------- resizable columns: drag the handle on the right edge of any header ----------
+ * - Widths are remembered in this browser (localStorage) so they stay however
+ *   you left them next time you open the page \u2014 not synced to D1, purely local.
+ * - Drag a column narrow enough and it snaps shut to a thin blue line instead
+ *   of fighting you at some fixed minimum width. Grab that blue line and drag
+ *   right to pop it back open \u2014 no separate "hide" button needed.
+ * - When a column is collapsed, its body-cell CONTENT is hidden too (via the
+ *   nth-child rules below), not just the header \u2014 otherwise buttons/inputs
+ *   in that column would wrap into a tall sliver and visually spill into the
+ *   rows above/below it instead of actually disappearing.
+ */
+const COL_WIDTH_STORAGE_KEY = 'outreachLedger:colWidths:v1';
+// must match the left-to-right order of <th data-col="..."> in the table \u2014
+// used to turn a collapsed column key into an nth-child position for the CSS below
+const COL_ORDER = ['name','actions','status','response','sentText','aiStatus','draftConn','sendConn','language','attachments','number','address','info'];
+function loadColWidths(){
+  try{ return JSON.parse(localStorage.getItem(COL_WIDTH_STORAGE_KEY) || '{}'); }
+  catch(e){ return {}; }
+}
+function saveColWidths(widths){
+  try{ localStorage.setItem(COL_WIDTH_STORAGE_KEY, JSON.stringify(widths)); }
+  catch(e){ /* localStorage unavailable \u2014 widths just won't persist */ }
+}
+function collapsedColStyleEl(){
+  let el = document.getElementById('collapsedColStyle');
+  if(!el){
+    el = document.createElement('style');
+    el.id = 'collapsedColStyle';
+    document.head.appendChild(el);
+  }
+  return el;
+}
+// Rewrites the stylesheet that hides tbody content for every currently-collapsed
+// column, keyed by table position so it applies no matter how render() has just
+// rebuilt the tbody's HTML (nth-child, not a class we'd have to reapply per-row).
+function applyCollapsedColumnCSS(collapsedKeys){
+  const rules = collapsedKeys.map(key => {
+    const idx = COL_ORDER.indexOf(key) + 1;
+    if(idx < 1) return '';
+    // font-size/color:transparent takes care of bare text nodes directly inside
+    // the cell (e.g. "0/4", "\u2014") that have no child element for display:none
+    // to target; display:none on the children handles buttons/inputs/etc.
+    // border/background go transparent too \u2014 otherwise every row's own 1px
+    // cell border still draws down the collapsed column, which reads as a stack
+    // of little overlapping boxes instead of one clean blank strip.
+    return `#ledgerTable tbody tr > *:nth-child(${idx}){ padding:0 !important; margin:0 !important; overflow:hidden !important; font-size:0 !important; line-height:0 !important; color:transparent !important; border-color:transparent !important; background:transparent !important; box-shadow:none !important; }
+#ledgerTable tbody tr > *:nth-child(${idx}) > *{ display:none !important; }`;
+  });
+  collapsedColStyleEl().textContent = rules.join('\n');
+}
 (function initColumnResize(){
-  let activeTh = null, startX = 0, startWidth = 0, activeHandle = null;
-  document.querySelectorAll('#ledgerTable thead th').forEach(th => {
+  const MIN_VISIBLE = 60;   // drag a column below this and it snaps shut
+  const COLLAPSED_W = 8;    // visual width while collapsed \u2014 just the blue handle
+  const DEFAULT_W = 90;     // fallback width if a column has never been sized
+
+  const ths = Array.from(document.querySelectorAll('#ledgerTable thead th'));
+  const saved = loadColWidths();
+  const collapsedKeys = new Set();
+
+  // apply any remembered widths/collapsed state right away, before anyone touches anything
+  ths.forEach(th => {
+    const key = th.dataset.col;
+    const handle = th.querySelector('.col-resizer');
+    const entry = key ? saved[key] : null;
+    if(entry){
+      th.dataset.virtualWidth = entry.width;
+      if(entry.collapsed){
+        th.style.width = COLLAPSED_W + 'px';
+        th.classList.add('col-collapsed');
+        if(handle) handle.classList.add('collapsed');
+        if(key) collapsedKeys.add(key);
+      } else {
+        th.style.width = entry.width + 'px';
+      }
+    } else {
+      th.dataset.virtualWidth = th.getBoundingClientRect().width || parseInt(th.style.width, 10) || DEFAULT_W;
+    }
+  });
+  applyCollapsedColumnCSS([...collapsedKeys]);
+
+  let activeTh = null, startX = 0, startVirtual = 0, activeHandle = null;
+
+  ths.forEach(th => {
     const handle = th.querySelector('.col-resizer');
     if(!handle) return;
     handle.addEventListener('mousedown', (e) => {
@@ -1952,19 +2156,41 @@ function addCompany(){
       activeTh = th;
       activeHandle = handle;
       startX = e.clientX;
-      startWidth = th.getBoundingClientRect().width;
+      startVirtual = parseFloat(th.dataset.virtualWidth) || th.getBoundingClientRect().width || DEFAULT_W;
       handle.classList.add('resizing');
       document.body.style.cursor = 'col-resize';
     });
   });
   document.addEventListener('mousemove', (e) => {
     if(!activeTh) return;
-    const newWidth = Math.max(40, startWidth + (e.clientX - startX));
-    activeTh.style.width = newWidth + 'px';
+    // don't let it wander off into the far distance while collapsed \u2014 keeps a
+    // reopen drag from needing to travel hundreds of px past where it shut
+    const virtual = Math.max(-150, startVirtual + (e.clientX - startX));
+    activeTh.dataset.virtualWidth = virtual;
+    const key = activeTh.dataset.col;
+    const wasCollapsed = activeTh.classList.contains('col-collapsed');
+    if(virtual < MIN_VISIBLE){
+      activeTh.style.width = COLLAPSED_W + 'px';
+      activeTh.classList.add('col-collapsed');
+      activeHandle.classList.add('collapsed');
+      if(key && !wasCollapsed){ collapsedKeys.add(key); applyCollapsedColumnCSS([...collapsedKeys]); }
+    } else {
+      activeTh.style.width = virtual + 'px';
+      activeTh.classList.remove('col-collapsed');
+      activeHandle.classList.remove('collapsed');
+      if(key && wasCollapsed){ collapsedKeys.delete(key); applyCollapsedColumnCSS([...collapsedKeys]); }
+    }
   });
   document.addEventListener('mouseup', () => {
     if(!activeTh) return;
     activeHandle.classList.remove('resizing');
+    const key = activeTh.dataset.col;
+    if(key){
+      const virtual = parseFloat(activeTh.dataset.virtualWidth) || DEFAULT_W;
+      const collapsed = virtual < MIN_VISIBLE;
+      saved[key] = { width: virtual, collapsed };
+      saveColWidths(saved);
+    }
     activeTh = null; activeHandle = null;
     document.body.style.cursor = '';
   });
