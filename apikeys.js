@@ -209,6 +209,62 @@
 
   let store = loadStore();
 
+  /* ---------- usage log (credits/tokens, across every service) ----------
+   * A flat, timestamped log of every AI call that actually reported token
+   * usage — info, all four drafting channels, and (once wired) real
+   * sending. Powers the "Today" / "Last minute" readout in the modal.
+   * Callers log a call with window.APIKeys.logUsage(serviceId, totalTokens).
+   */
+  const USAGE_KEY = "outreachLedger_usageLog_v1";
+  const USAGE_MAX_AGE_MS = 48 * 60 * 60 * 1000; // nothing needs entries older than ~today+buffer
+
+  function loadUsageLog() {
+    try {
+      const raw = localStorage.getItem(USAGE_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return Array.isArray(parsed) ? parsed : [];
+    } catch (e) {
+      return [];
+    }
+  }
+  function saveUsageLog(log) {
+    try {
+      localStorage.setItem(USAGE_KEY, JSON.stringify(log));
+    } catch (e) {
+      console.error("Could not save usage log:", e);
+    }
+  }
+
+  let usageLog = loadUsageLog();
+
+  function pruneUsageLog() {
+    const cutoff = Date.now() - USAGE_MAX_AGE_MS;
+    usageLog = usageLog.filter((e) => e.ts >= cutoff);
+  }
+
+  function logUsage(serviceId, tokens) {
+    const n = Number(tokens);
+    if (!n || n <= 0) return;
+    usageLog.push({ ts: Date.now(), serviceId: serviceId || "unknown", tokens: n });
+    pruneUsageLog();
+    saveUsageLog(usageLog);
+    renderUsagePanel();
+  }
+
+  function startOfToday() {
+    const d = new Date();
+    d.setHours(0, 0, 0, 0);
+    return d.getTime();
+  }
+
+  function sumUsageSince(sinceTs) {
+    let total = 0;
+    for (const e of usageLog) {
+      if (e.ts >= sinceTs) total += e.tokens;
+    }
+    return total;
+  }
+
   // guards against the most common paste mistake: dropping in "GROQ_API_KEY=gsk_..." from an
   // .env file, or a whole multi-line block, instead of just the bare key. A bloated key like
   // that is the usual cause of Groq's "413 Request Entity Too Large" — the key rides along in
@@ -358,6 +414,8 @@
           <button id="apiKeysCloseX" style="background:none; border:none; color:#98a0a7; font-size:20px; cursor:pointer;">\u2715</button>
         </div>
         <div id="apiKeysModalDesc" style="font-size:13px; color:#98a0a7; margin-bottom:18px; line-height:1.55;"></div>
+        <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#5f6870; margin-bottom:8px;">Usage \u2014 every key, every channel</div>
+        <div id="apiKeysUsagePanel" style="display:flex; gap:10px; margin-bottom:18px;"></div>
         <div id="apiKeysList"></div>
         <div style="margin-top:18px; padding-top:18px; border-top:1px solid #2b3137;">
           <div style="font-size:11px; text-transform:uppercase; letter-spacing:.06em; color:#5f6870; margin-bottom:8px;">Add a key</div>
@@ -484,6 +542,37 @@
       .join("");
   }
 
+  // Today + last-minute token totals, summed across every service (info,
+  // every drafting channel, and sending once that's wired) — not just
+  // whichever key's modal happens to be open. Refreshed on a timer while
+  // the modal is open so "last minute" keeps sliding forward live.
+  function renderUsagePanel() {
+    const el = document.getElementById("apiKeysUsagePanel");
+    if (!el) return;
+    const today = sumUsageSince(startOfToday());
+    const lastMinute = sumUsageSince(Date.now() - 60 * 1000);
+    const card = (label, value) => `
+      <div style="flex:1; min-width:0; background:#20242a; border:1px solid #3a4148; border-radius:8px; padding:11px 13px;">
+        <div style="font-size:10.5px; text-transform:uppercase; letter-spacing:.05em; color:#5f6870;">${label}</div>
+        <div style="font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:17px; color:#e9e6e0; margin-top:3px;">
+          ${value.toLocaleString()} <span style="font-size:11px; font-weight:400; color:#98a0a7;">tokens</span>
+        </div>
+      </div>`;
+    el.innerHTML = card("Today", today) + card("Past minute", lastMinute);
+  }
+
+  let usagePanelTimer = null;
+  function startUsagePanelTimer() {
+    stopUsagePanelTimer();
+    usagePanelTimer = setInterval(renderUsagePanel, 3000);
+  }
+  function stopUsagePanelTimer() {
+    if (usagePanelTimer) {
+      clearInterval(usagePanelTimer);
+      usagePanelTimer = null;
+    }
+  }
+
   function escapeHtml(s) {
     return String(s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   }
@@ -502,12 +591,15 @@
     document.getElementById("apiKeysNewLabel").value = "";
     document.getElementById("apiKeysNewValue").value = "";
     renderList();
+    renderUsagePanel();
+    startUsagePanelTimer();
     document.getElementById("apiKeysOverlay").style.display = "flex";
   }
   function closeManager() {
     const overlay = document.getElementById("apiKeysOverlay");
     if (overlay) overlay.style.display = "none";
     editingKeyId = null;
+    stopUsagePanelTimer();
   }
 
   if (document.readyState !== "loading") ensureBar();
@@ -523,5 +615,6 @@
     deleteKey,
     setActive,
     openManager,
+    logUsage,
   };
 })();
