@@ -447,7 +447,7 @@ function blankChannel(chName){
   return {
     status: chName === "Calls" ? "Uncalled" : "Not Sent",
     aiInput:"", aiOutput:"",
-    response:"\u2014", responseText:"", responseLink:"",
+    response:"\u2014", responseText:"", responseLink:"", gmailThreadId:"",
     sentText:"", subject:"", script:"", attachments:[], templateId:null, number:"", address:"", language:"",
     ai:"Uncalled",
     connection:"Disconnected"
@@ -1087,9 +1087,22 @@ function performSendAction(companyId, chName){
     const toAddress = window.SafeSend ? window.SafeSend.resolveAddress(c.id, ch.address) : ch.address;
 
     return window.EmailSender.sendEmail({ to: toAddress, subject, text: ch.sentText })
-      .then(() => {
+      .then(result => {
         stopLoadingCycle(key);
         markSent(ch, chName);
+        // Gmail hands back a threadId for the message we just sent \u2014 save it
+        // and turn it straight into a link to that thread in Gmail, so the
+        // Response modal's "Open" button jumps right to the conversation
+        // instead of you having to go dig for it in your inbox.
+        if(result && result.threadId){
+          ch.gmailThreadId = result.threadId;
+          // /u/<email>/ instead of /u/0/ \u2014 Gmail accepts the account's actual
+          // address in that slot, so this link keeps working even if this
+          // Google account isn't first in the browser's account list (or
+          // stops being first later).
+          const acctSlot = result.from ? encodeURIComponent(result.from) : '0';
+          ch.responseLink = `https://mail.google.com/mail/u/${acctSlot}/#all/${result.threadId}`;
+        }
         doneFlags[key] = true;
         btnBusy[key] = 'success';
         render();
