@@ -33,7 +33,14 @@ import { createServer } from "node:http";
 
 const PORT = 3000;
 const REDIRECT_URI = `http://localhost:${PORT}/oauth2callback`;
-const SCOPE = "https://www.googleapis.com/auth/gmail.send";
+// gmail.send lets the site send email (functions/api/send-email.js).
+// gmail.readonly lets it read a thread's messages back (functions/api/
+// check-reply.js), which is what makes the Response tab able to pull in an
+// actual reply instead of just linking out to Gmail. If you already have a
+// GMAIL_REFRESH_TOKEN from before check-reply.js existed, it only has
+// gmail.send — you need to re-run this script and swap in the new token
+// (see README-EMAIL-SETUP.md / the comment atop check-reply.js).
+const SCOPE = "https://www.googleapis.com/auth/gmail.send https://www.googleapis.com/auth/gmail.readonly";
 
 let creds;
 try {
