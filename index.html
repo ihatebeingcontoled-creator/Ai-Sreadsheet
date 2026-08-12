@@ -108,7 +108,7 @@
 
   /* ---------- ledger table ---------- */
   .grid-wrap{overflow-x:auto; border-bottom:1px solid var(--line);}
-  table{ width:100%; border-collapse:collapse; font-size:12.5px; min-width:1040px; table-layout:fixed; }
+  table{ border-collapse:collapse; font-size:12.5px; table-layout:fixed; }
   thead th{ position:relative; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
   .col-resizer{
     position:absolute; top:0; right:-3px; width:7px; height:100%;
@@ -120,6 +120,13 @@
      column back open again */
   .col-resizer.collapsed{ background:var(--blue); opacity:.85; width:6px; right:-2px; }
   .col-resizer.collapsed:hover{ opacity:1; width:9px; }
+  /* while actively dragging a column resizer, lock down text selection across
+     the whole page — without this, dragging across table cells also starts a
+     native text-selection drag underneath the resize, which is what made the
+     cursor feel sluggish and yanked the page sideways mid-drag. */
+  body.col-resize-active, body.col-resize-active *{
+    user-select:none !important; -webkit-user-select:none !important; cursor:col-resize !important;
+  }
   th.col-collapsed{ padding-left:0; padding-right:0; }
   thead th{
     text-align:left; font-family:'Space Grotesk', sans-serif; font-weight:600; font-size:11px;
@@ -886,12 +893,10 @@ function renderBody(){
             <button class="del-link" onclick="deleteCompany('${company.id}')" title="Remove">&times;</button>
           </div>
         </td>
-        <td class="${company.expanded ? 'actions-cell' : 'agg-cell'}">
-          ${company.expanded ? `
+        <td class="actions-cell">
             ${renderActionBtn(actionKey(company.id,'','fetchInfo'), 'fetchInfo', '🔍 Fetch Info', '\u2705 Fetched', !!company.info, aiErrorFlags[actionKey(company.id,'','fetchInfo')], `runAction('fetchInfo','${company.id}','')`)}
             ${renderActionBtn(actionKey(company.id,'','draftAll'), 'draftAll', '✏️ Draft All', '\u2705 All Drafted!', draftAllDone(company), companyDraftError(company), `runDraftAllSequential('${company.id}')`, !company.info, "Fetch or generate company info first")}
             ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
-          ` : `\u2014`}
         </td>
         <td class="agg-cell${agg.sent===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sent}/${agg.total}</td>
         <td class="agg-cell">${agg.responded}/${agg.total}</td>
@@ -2198,6 +2203,22 @@ function applyCollapsedColumnCSS(collapsedKeys){
   });
   applyCollapsedColumnCSS([...collapsedKeys]);
 
+  // table-layout:fixed still stretches a width:auto table to fill its
+  // container by default \u2014 it does NOT shrink to the sum of the column
+  // widths on its own. Without pinning the table's own width explicitly,
+  // the browser silently redistributes any leftover/deficit space across
+  // the OTHER columns any time one column is resized, which is exactly the
+  // "columns shifting size on their own" bug. Locking table width to the
+  // exact sum of column widths, kept in sync on every resize, is what
+  // makes each column truly independent \u2014 same as Excel.
+  const ledgerTableEl = document.getElementById('ledgerTable');
+  function recalcTableWidth(){
+    let total = 0;
+    ths.forEach(th => { total += parseFloat(th.style.width) || th.getBoundingClientRect().width || DEFAULT_W; });
+    ledgerTableEl.style.width = total + 'px';
+  }
+  recalcTableWidth();
+
   let activeTh = null, startX = 0, startVirtual = 0, activeHandle = null;
 
   ths.forEach(th => {
@@ -2205,16 +2226,30 @@ function applyCollapsedColumnCSS(collapsedKeys){
     if(!handle) return;
     handle.addEventListener('mousedown', (e) => {
       e.preventDefault();
+      // let go of whatever's focused (a textarea/input mid-edit can otherwise
+      // steal the drag or trigger its own selection while you're resizing)
+      if(document.activeElement && document.activeElement.blur) document.activeElement.blur();
       activeTh = th;
       activeHandle = handle;
       startX = e.clientX;
       startVirtual = parseFloat(th.dataset.virtualWidth) || th.getBoundingClientRect().width || DEFAULT_W;
       handle.classList.add('resizing');
       document.body.style.cursor = 'col-resize';
+      document.body.classList.add('col-resize-active');
+      // belt-and-suspenders: explicitly clear any selection that snuck in
+      // the instant before we locked user-select down above
+      if(window.getSelection) window.getSelection().removeAllRanges();
     });
   });
   document.addEventListener('mousemove', (e) => {
     if(!activeTh) return;
+    // stray selection can still sneak in on a fast drag even with the
+    // page-wide user-select lock above — stomp it out every move so it
+    // never gets the chance to start dragging/scrolling the page on its own
+    if(window.getSelection){
+      const sel = window.getSelection();
+      if(sel && sel.rangeCount && !sel.isCollapsed) sel.removeAllRanges();
+    }
     // don't let it wander off into the far distance while collapsed \u2014 keeps a
     // reopen drag from needing to travel hundreds of px past where it shut
     const virtual = Math.max(-150, startVirtual + (e.clientX - startX));
@@ -2232,6 +2267,7 @@ function applyCollapsedColumnCSS(collapsedKeys){
       activeHandle.classList.remove('collapsed');
       if(key && wasCollapsed){ collapsedKeys.delete(key); applyCollapsedColumnCSS([...collapsedKeys]); }
     }
+    recalcTableWidth();
   });
   document.addEventListener('mouseup', () => {
     if(!activeTh) return;
@@ -2245,6 +2281,7 @@ function applyCollapsedColumnCSS(collapsedKeys){
     }
     activeTh = null; activeHandle = null;
     document.body.style.cursor = '';
+    document.body.classList.remove('col-resize-active');
   });
 })();
 
