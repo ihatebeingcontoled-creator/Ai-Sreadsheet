@@ -629,7 +629,17 @@ function channelDraftConnectionStatus(chName){
 function channelHasResponse(ch){
   return !!(ch.responseText && ch.responseText.trim());
 }
-function responseDisplay(ch){
+// companyId/chName are optional \u2014 when given, an in-flight or just-finished
+// "Check for Reply" (see checkReplyForChannel) takes priority over the
+// normal Replied/Waiting pill, so the row visibly shows Checking.../Nothing
+// found instead of silently flipping status with no feedback.
+function responseDisplay(ch, companyId, chName){
+  if(companyId && chName){
+    const status = replyCheckStatus[actionKey(companyId, chName, 'checkReply')];
+    if(status === 'checking') return { label: "\u23F3 Checking...", cls: "pill-amber" };
+    if(status === 'notfound') return { label: "Nothing found", cls: "pill-grey" };
+    if(status === 'error') return { label: "\u26A0\uFE0F Check failed", cls: "pill-red" };
+  }
   return channelHasResponse(ch) ? { label: "Replied", cls: "pill-amber" } : { label: "Waiting for Response", cls: "pill-grey" };
 }
 
@@ -663,6 +673,7 @@ function contactMissingTitle(chName){
 let contactErrorFlags = {}; // actionKey(companyId, chName, 'send') -> true while blocked on missing contact info
 let aiErrorFlags = {}; // actionKey(...) -> error message string while a real AI call has failed
 let sendErrorFlags = {}; // actionKey(companyId, chName, 'send') -> error message string while a real Send (Email, via Gmail) has failed
+let replyCheckStatus = {}; // actionKey(companyId, chName, 'checkReply') -> 'checking' | 'notfound' | 'error' while a Check for Reply run is live/just finished
 function companyContactMissing(company){
   return CHANNEL_ORDER.some(chName => {
     if(chName === 'Calls') return false;
@@ -738,6 +749,24 @@ function fetchLinkAggBtn(company){
   return `<button class="info-action-btn" style="${baseStyle} color:var(--amber); border-color:rgba(217,164,65,.3); background:var(--amber-dim);" onclick="performFetchLinkAction('${company.id}')" title="Build/refresh the Gmail thread link used by Response \u2192 Open">\uD83D\uDD17 Chat Link</button>`;
 }
 
+// Compact "Check Reply" button that lives in the Response column's
+// aggregate cell (next to the responded count) \u2014 checks Gmail for a reply
+// on every channel of this company that has a gmailThreadId on file (see
+// checkAllRepliesForCompany). Disabled until at least one channel has
+// actually been sent via Email (that's what produces the thread id).
+function checkReplyAggBtn(company){
+  const allKey = actionKey(company.id, '', 'checkReplyAll');
+  const busy = btnBusy[allKey];
+  const baseStyle = "width:100%; text-align:center;";
+  const hasThread = CHANNEL_ORDER.some(chName => company.channels[chName].gmailThreadId);
+  if(busy === 'loading') return `<button class="info-action-btn activating" style="${baseStyle}" disabled><span class="btn-spinner"></span> Checking...</button>`;
+  if(busy === 'success') return `<button class="info-action-btn" style="${baseStyle} color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim); cursor:default;" disabled>\u2705 Checked!</button>`;
+  if(!hasThread){
+    return `<button class="info-action-btn" style="${baseStyle} opacity:.5; cursor:not-allowed;" disabled title="Send the Email channel first, then this can check Gmail for a reply">\uD83D\uDD04 Check Reply</button>`;
+  }
+  return `<button class="info-action-btn" style="${baseStyle}" onclick="checkAllRepliesForCompany('${company.id}')" title="Check Gmail for a reply on every channel with a sent thread">\uD83D\uDD04 Check Reply</button>`;
+}
+
 function aggregate(company){
   const chans = CHANNEL_ORDER.map(c => company.channels[c]);
   const sent = chans.filter(c => c.status==="Sent" || c.status==="Called").length;
@@ -793,17 +822,34 @@ function updateGmailAccountSlot(value){
 
 function renderStats(){
   const totalCompanies = state.companies.length;
-  let totalSent=0, totalResp=0, totalAi=0, totalPossible=0;
+  let totalSent=0, totalResp=0, totalAi=0, totalPossible=0, checkableThreads=0;
   state.companies.forEach(c=>{
     const a = aggregate(c);
     totalSent += a.sent; totalResp += a.responded; totalAi += a.aiDone; totalPossible += a.total;
+    checkableThreads += CHANNEL_ORDER.filter(chName => c.channels[chName].gmailThreadId).length;
   });
   document.getElementById('statsRow').innerHTML = `
     <div class="stat-pill"><b>${totalCompanies}</b>companies</div>
     <div class="stat-pill"><b>${totalSent}/${totalPossible}</b>sent</div>
     <div class="stat-pill"><b>${totalResp}/${totalPossible}</b>replied</div>
     <div class="stat-pill"><b>${totalAi}/${totalPossible}</b>ai done</div>
+    <div class="stat-pill" style="border-right:none;">${checkAllRepliesBtnHtml(checkableThreads)}</div>
   `;
+}
+
+// The "Check All Replies" button in the stats row at the very top \u2014 walks
+// every company/channel with a sent Gmail thread (see checkAllRepliesGlobal)
+// and checks each one for a reply.
+function checkAllRepliesBtnHtml(checkableThreads){
+  const allKey = 'global|checkReplyAll';
+  const busy = btnBusy[allKey];
+  const baseStyle = "white-space:nowrap;";
+  if(busy === 'loading') return `<button class="info-action-btn activating" style="${baseStyle}" disabled><span class="btn-spinner"></span> Checking all...</button>`;
+  if(busy === 'success') return `<button class="info-action-btn" style="${baseStyle} color:var(--green); border-color:rgba(95,174,123,.3); background:var(--green-dim); cursor:default;" disabled>\u2705 Checked all!</button>`;
+  if(checkableThreads === 0){
+    return `<button class="info-action-btn" style="${baseStyle} opacity:.5; cursor:not-allowed;" disabled title="Send at least one Email to get a thread to check">\uD83D\uDD04 Check All Replies</button>`;
+  }
+  return `<button class="info-action-btn" style="${baseStyle}" onclick="checkAllRepliesGlobal()" title="Check Gmail for a reply on every sent Email thread, across all companies">\uD83D\uDD04 Check All Replies</button>`;
 }
 
 function renderTemplates(){
@@ -900,7 +946,12 @@ function renderBody(){
             ${renderActionBtn(actionKey(company.id,'','sendAll'), 'sendAll', '📤 Send All', '\u2705 All Sent', sendAllDone(company), companySendError(company), `runSendAllSequential('${company.id}')`, !anyDraftReady(company))}
         </td>
         <td class="agg-cell${agg.sent===agg.total && agg.total>0 ? ' agg-complete' : ''}">${agg.sent}/${agg.total}</td>
-        <td class="agg-cell">${agg.responded}/${agg.total}</td>
+        <td class="agg-cell">
+          <div class="link-agg-box">
+            ${checkReplyAggBtn(company)}
+            <div class="link-agg-count">${agg.responded}/${agg.total} replied</div>
+          </div>
+        </td>
         <td class="agg-cell${agg.linked===agg.total && agg.total>0 ? ' agg-complete' : ''}">
           <div class="link-agg-box">
             ${fetchLinkAggBtn(company)}
@@ -972,7 +1023,7 @@ function renderBody(){
           </td>
           <td>
             <div style="display:flex; align-items:center; gap:4px; flex-wrap:wrap;">
-              <button class="cell-btn ${responseDisplay(ch).cls}" onclick="openModal('${company.id}','${chName}','response')">${responseDisplay(ch).label}</button>
+              <button class="cell-btn ${responseDisplay(ch, company.id, chName).cls}" onclick="openModal('${company.id}','${chName}','response')">${responseDisplay(ch, company.id, chName).label}</button>
             </div>
           </td>
           <td>
@@ -1337,28 +1388,32 @@ function performFetchLinkAction(companyId){
   });
 }
 
-/* performCheckReplyAction — the Response modal's "Check for Reply" button.
- * Calls /api/check-reply (functions/api/check-reply.js) with the Email
- * channel's saved gmailThreadId, which asks Gmail for that thread and hands
- * back the newest message in it that isn't one we sent. If there is one,
- * it's written straight into ch.responseText (and the modal's textarea, so
- * you see it immediately without having to reopen the popup) \u2014 no more
- * manually copy/pasting the reply over from Gmail.
- * textArea/linkInput/syncLinkOpen are the live modal elements, passed in so
- * this can update what's on screen right now without forcing you to close
- * and reopen the popup to see the fetched text.
+/* checkReplyForChannel — the core "check Gmail for a reply" call, used by
+ * the Response modal's button, the per-company "Check Reply" button, and
+ * the global "Check All Replies" button in the stats row. Calls
+ * /api/check-reply (functions/api/check-reply.js) with the channel's saved
+ * gmailThreadId, which asks Gmail for that thread and hands back the
+ * newest message in it that isn't one we sent.
+ *
+ * Drives replyCheckStatus[key] so the row's Response pill (see
+ * responseDisplay) visibly shows "Checking..." while this is in flight,
+ * then either flips straight to "Replied" (found \u2014 responseText is set,
+ * so channelHasResponse takes over) or briefly shows "Nothing found" /
+ * "Check failed" before reverting to "Waiting for Response" after ~2s, so a
+ * negative result is never silent.
+ *
+ * Returns Promise<boolean> (true only if a reply was actually found).
  */
-function performCheckReplyAction(companyId, channel, textArea){
-  const key = actionKey(companyId, channel, 'checkReply');
-  if(btnBusy[key]) return Promise.resolve(false);
-
+function checkReplyForChannel(companyId, chName){
   const c = state.companies.find(c=>c.id===companyId);
-  const ch = c.channels[channel];
-  const checkReplyBtn = document.getElementById('modalCheckReplyBtn');
+  const ch = c && c.channels[chName];
+  if(!ch || !ch.gmailThreadId) return Promise.resolve(false);
 
-  btnBusy[key] = 'loading';
-  checkReplyBtn.disabled = true;
-  checkReplyBtn.textContent = "\u23F3 Checking...";
+  const key = actionKey(companyId, chName, 'checkReply');
+  if(replyCheckStatus[key] === 'checking') return Promise.resolve(false);
+
+  replyCheckStatus[key] = 'checking';
+  render();
 
   return fetch('/api/check-reply', {
     method: 'POST',
@@ -1374,11 +1429,10 @@ function performCheckReplyAction(companyId, channel, textArea){
       return data;
     }))
     .then(data => {
-      delete btnBusy[key];
-      checkReplyBtn.disabled = false;
       if(!data.hasReply){
-        checkReplyBtn.textContent = "No reply yet";
-        setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 1800);
+        replyCheckStatus[key] = 'notfound';
+        render();
+        setTimeout(() => { delete replyCheckStatus[key]; render(); }, 2000);
         return false;
       }
       // Prepend who/when it came from so that's never lost even though
@@ -1386,21 +1440,96 @@ function performCheckReplyAction(companyId, channel, textArea){
       const meta = [data.from && `From: ${data.from}`, data.date && `Date: ${data.date}`].filter(Boolean).join("\n");
       const fullText = meta ? `${meta}\n\n${data.text || ''}` : (data.text || '');
       ch.responseText = fullText;
-      // still live in the DOM (modal is open) \u2014 reflect it immediately
-      if(textArea) textArea.value = fullText;
-      checkReplyBtn.textContent = "\u2705 Reply found!";
-      setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 1800);
+      delete replyCheckStatus[key];
       render();
       return true;
     })
     .catch(err => {
-      delete btnBusy[key];
-      checkReplyBtn.disabled = false;
-      checkReplyBtn.textContent = "\u26A0\uFE0F Failed \u2014 retry";
-      checkReplyBtn.title = (err && err.message) ? err.message : 'Check failed';
-      setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 2500);
+      replyCheckStatus[key] = 'error';
+      render();
+      console.error(`Check for Reply failed (${companyId}/${chName}):`, err);
+      setTimeout(() => { delete replyCheckStatus[key]; render(); }, 2000);
       return false;
     });
+}
+
+/* performCheckReplyAction — thin wrapper checkReplyForChannel used by the
+ * Response modal's "Check for Reply" button specifically: also pushes the
+ * fetched text into the still-open modal's textarea immediately, so you
+ * see it without having to close and reopen the popup.
+ */
+function performCheckReplyAction(companyId, channel, textArea){
+  return checkReplyForChannel(companyId, channel).then(found => {
+    if(found && textArea){
+      const c = state.companies.find(c=>c.id===companyId);
+      textArea.value = c.channels[channel].responseText || "";
+    }
+    return found;
+  });
+}
+
+/* checkAllRepliesForCompany — the compact "Check Reply" button in the
+ * Response column's aggregate cell (next to the linked/response counts).
+ * Runs checkReplyForChannel across every channel on this company that has
+ * a gmailThreadId on file (currently only ever Email, but this stays
+ * correct if that ever changes), one at a time.
+ */
+function checkAllRepliesForCompany(companyId){
+  const allKey = actionKey(companyId, '', 'checkReplyAll');
+  if(btnBusy[allKey]) return Promise.resolve();
+
+  const c = state.companies.find(c=>c.id===companyId);
+  const targets = CHANNEL_ORDER.filter(chName => c.channels[chName].gmailThreadId);
+  if(targets.length === 0) return Promise.resolve();
+
+  btnBusy[allKey] = 'loading';
+  render();
+
+  return new Promise(resolve => {
+    function step(idx){
+      if(idx >= targets.length){
+        btnBusy[allKey] = 'success';
+        render();
+        setTimeout(() => { delete btnBusy[allKey]; render(); resolve(); }, 700);
+        return;
+      }
+      checkReplyForChannel(companyId, targets[idx]).then(() => step(idx + 1));
+    }
+    step(0);
+  });
+}
+
+/* checkAllRepliesGlobal — the "Check All Replies" button in the stats row
+ * at the very top of the page. Walks every company and every channel that
+ * has a gmailThreadId on file and checks each, one at a time (sequential,
+ * same reasoning as Send All \u2014 gentler on the Gmail API than firing them
+ * all in parallel).
+ */
+function checkAllRepliesGlobal(){
+  const allKey = 'global|checkReplyAll';
+  if(btnBusy[allKey]) return;
+
+  const targets = [];
+  state.companies.forEach(c => {
+    CHANNEL_ORDER.forEach(chName => {
+      if(c.channels[chName].gmailThreadId) targets.push([c.id, chName]);
+    });
+  });
+  if(targets.length === 0) return;
+
+  btnBusy[allKey] = 'loading';
+  render();
+
+  function step(idx){
+    if(idx >= targets.length){
+      btnBusy[allKey] = 'success';
+      render();
+      setTimeout(() => { delete btnBusy[allKey]; render(); }, 900);
+      return;
+    }
+    checkReplyForChannel(targets[idx][0], targets[idx][1]).then(() => step(idx + 1));
+  }
+  step(0);
 }
 
 function sendAll(companyId){
@@ -2064,7 +2193,15 @@ function openModal(companyId, channel, field){
     if(channel === 'Email' && ch.gmailThreadId){
       checkReplyBtn.style.display = "inline-block";
       checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply";
-      checkReplyBtn.onclick = () => performCheckReplyAction(companyId, channel, textArea);
+      checkReplyBtn.onclick = () => {
+        checkReplyBtn.disabled = true;
+        checkReplyBtn.textContent = "\u23F3 Checking...";
+        performCheckReplyAction(companyId, channel, textArea).then(found => {
+          checkReplyBtn.disabled = false;
+          checkReplyBtn.textContent = found ? "\u2705 Reply found!" : "No reply yet";
+          setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 1800);
+        });
+      };
     }
     saveBtn.onclick = () => {
       updateField(companyId, channel, 'responseText', textArea.value);
