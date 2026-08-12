@@ -7,8 +7,14 @@
  *
  * POST /api/send-email
  * body: { to: "someone@example.com", subject: "...", text: "..." }
- * -> { ok: true, id: "<gmail message id>" }  on success
+ * -> { ok: true, id: "<gmail message id>", threadId: "<gmail thread id>", from: "<GMAIL_SENDER_EMAIL>" }  on success
  * -> { error: "..." }  (non-200) on failure
+ *
+ * `from` is just GMAIL_SENDER_EMAIL echoed back \u2014 not a secret, it's already
+ * visible in the From header of every email this sends. index.html uses it
+ * (instead of a hardcoded /u/0/) to build a Gmail thread link that keeps
+ * working no matter which position this account sits at in the browser's
+ * Google account list.
  *
  * How it sends the email:
  *   Uses a Gmail account's OAuth2 *refresh token* (minted once, offline —
@@ -150,7 +156,7 @@ export async function onRequestPost(context) {
       return json({ error: `Gmail API error ${sendRes.status}: ${detail}` }, 502);
     }
 
-    return json({ ok: true, id: sendData.id }, 200);
+    return json({ ok: true, id: sendData.id, threadId: sendData.threadId, from: env.GMAIL_SENDER_EMAIL }, 200);
   } catch (e) {
     return json({ error: e.message || "Server error sending email" }, 500);
   }
