@@ -237,7 +237,7 @@
     60%{ transform:scale(1.06); opacity:1; }
     100%{ transform:scale(1); opacity:1; }
   }
-  .action-btn.success, .action-btn.done{ animation:link-pop .3s ease-out; }
+  .action-btn.success, .action-btn.done.pop-once{ animation:link-pop .3s ease-out; }
   .link-agg-box{
     border:1px solid var(--line); border-radius:6px; padding:6px;
     display:flex; flex-direction:column; align-items:center; gap:4px;
@@ -352,6 +352,18 @@
   }
   .modal-link-open:hover{background:rgba(90,143,214,.22);}
   .modal-link-open.disabled{opacity:.4; pointer-events:none;}
+  /* read-only mirror of the Response popup's Chat Link, shown at the top of
+     the Sent Text popup — display-only, never saved/edited from here.
+     Styled to match .modal-link-input exactly (same box, same placeholder
+     look when empty) so it reads as the same "Chat Link" field, just locked. */
+  .modal-link-mirror-text{
+    flex:1; min-width:0; display:flex; align-items:center;
+    background:var(--surface-2); border:1px solid var(--line); color:var(--text);
+    font-family:'IBM Plex Mono', monospace; font-size:12.5px;
+    padding:9px 10px; border-radius:6px;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+  }
+  .modal-link-mirror-text.empty{ color:var(--text-faint); }
   .modal-actions{padding:10px 14px 0; display:flex; justify-content:flex-end;}
   .modal-save-btn{
     background:var(--green-dim); color:var(--green); border:1px solid rgba(95,174,123,.3);
@@ -446,6 +458,13 @@
     <div class="modal-title" id="modalTitle">Select</div>
     <div id="modalOptions"></div>
     <div id="modalTextSection" style="display:none;">
+      <div id="modalLinkMirrorRow" style="display:none;">
+        <div class="modal-subtitle">Chat Link</div>
+        <div class="modal-text-wrap modal-link-wrap">
+          <div class="modal-link-mirror-text" id="modalLinkMirrorText">&mdash;</div>
+          <a class="modal-link-open" id="modalLinkMirrorOpen" href="#" target="_blank" rel="noopener">Open ↗</a>
+        </div>
+      </div>
       <div id="modalTextColumns" class="modal-text-columns">
         <div class="modal-text-col">
           <div class="modal-subtitle" id="modalTextSubtitle">Full text</div>
@@ -1021,6 +1040,13 @@ function retryChannel(companyId, chName){
 /* ---------- action buttons: loading -> success -> normal (or permanent) ---------- */
 let btnBusy = {}; // key -> 'loading' | 'success'
 let doneFlags = {}; // key -> true once an action has successfully completed; stays true forever (until page refresh)
+// Since renderBody() rebuilds every row's HTML from scratch on every render()
+// call (and render() fires constantly — on any state change, not just this
+// button's own), a "done" button gets a brand-new DOM node each time, which
+// would replay its little pop animation forever. This tracks which keys have
+// already played that animation once, so it only fires the first time an
+// action finishes, not on every subsequent re-render.
+let doneAnimPlayed = {};
 
 const LOADING_DURATION = 1600; // ms an action spends in the loading state
 const STAGE_MESSAGES = {
@@ -1077,7 +1103,11 @@ function renderActionBtn(key, type, label, doneLabel, isDone, hasError, onClickA
   }
   // once an action actually succeeds it stays done forever, even if some other stale error flag lingers
   if(doneFlags[key] || isDone){
-    return `<button class="action-btn done" disabled>${doneLabel}</button>`;
+    // only play the "just finished" pop animation the first time this key is
+    // rendered as done — every re-render after that stays visually settled
+    const justFinished = !doneAnimPlayed[key];
+    if(justFinished) doneAnimPlayed[key] = true;
+    return `<button class="action-btn done${justFinished ? ' pop-once' : ''}" disabled>${doneLabel}</button>`;
   }
   // missing contact info (no address for Email / no number for iMessage & Viber) blocks Send specifically,
   // and shows the error right on the Send button itself instead of anywhere else — same red "try again" pattern
@@ -1897,10 +1927,14 @@ function openModal(companyId, channel, field){
   const linkRow = document.getElementById('modalLinkRow');
   const linkInput = document.getElementById('modalLinkInput');
   const linkOpen = document.getElementById('modalLinkOpen');
+  const linkMirrorRow = document.getElementById('modalLinkMirrorRow');
+  const linkMirrorText = document.getElementById('modalLinkMirrorText');
+  const linkMirrorOpen = document.getElementById('modalLinkMirrorOpen');
 
   retryBtn.style.display = "none";
   textSection2.style.display = "none";
   linkRow.style.display = "none";
+  linkMirrorRow.style.display = "none";
   // the AI Input/Output popup gets a wider sheet so the two columns have room
   document.querySelector('.modal-sheet').classList.toggle('wide', field === 'ai');
 
@@ -1992,6 +2026,24 @@ function openModal(companyId, channel, field){
     document.getElementById('modalTitle').textContent = `${channel} \u2013 Sent Text`;
     optionsWrap.style.display = "none";
     textSection.style.display = "block";
+    // Read-only mirror of the Chat Link saved on the Response popup — shown
+    // here purely so it's visible while looking at what you sent. It's just a
+    // display: nothing here is editable or saved back, and it doesn't touch
+    // any AI/draft/send logic at all. Always visible (like the Response
+    // popup's own field), showing the same placeholder text when empty.
+    linkMirrorRow.style.display = "block";
+    if(ch.responseLink){
+      linkMirrorText.textContent = ch.responseLink;
+      linkMirrorText.classList.remove('empty');
+      const url = ch.responseLink.trim();
+      linkMirrorOpen.href = /^https?:\/\//i.test(url) ? url : `https://${url}`;
+      linkMirrorOpen.classList.remove('disabled');
+    } else {
+      linkMirrorText.textContent = "e.g. https://mail.google.com/mail/u/0/...";
+      linkMirrorText.classList.add('empty');
+      linkMirrorOpen.href = "#";
+      linkMirrorOpen.classList.add('disabled');
+    }
     if(channel === 'Email'){
       // Email has a real subject/body split (AI-drafted or hand-edited), so
       // show and save both \u2014 subject in the first box, body in the second,
