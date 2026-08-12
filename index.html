@@ -448,7 +448,7 @@ function blankChannel(chName){
     status: chName === "Calls" ? "Uncalled" : "Not Sent",
     aiInput:"", aiOutput:"",
     response:"\u2014", responseText:"", responseLink:"",
-    sentText:"", script:"", attachments:[], templateId:null, number:"", address:"", language:"",
+    sentText:"", subject:"", script:"", attachments:[], templateId:null, number:"", address:"", language:"",
     ai:"Uncalled",
     connection:"Disconnected"
   };
@@ -802,7 +802,12 @@ function renderBody(){
 
     CHANNEL_ORDER.forEach((chName, chIdx) => {
       const ch = company.channels[chName];
-      const sentPreview = ch.sentText ? ch.sentText : "";
+      // Email gets its AI-drafted subject folded into the same preview button
+      // as the body, so you can see (and click through to edit) both without
+      // a whole extra column.
+      const sentPreview = (chName === 'Email' && ch.subject)
+        ? `Subject: ${ch.subject}${ch.sentText ? '\n\n' + ch.sentText : ''}`
+        : (ch.sentText ? ch.sentText : "");
       const infoPreview = company.info ? company.info : "";
       const attachHtml = ch.attachments.map((fn, idx) => `
         <span class="attach-chip">${escAttr(fn)}<button onclick="removeAttachment('${company.id}','${chName}',${idx})">&times;</button></span>
@@ -881,6 +886,7 @@ function markSent(channelObj, chName){
   if(!channelObj.sentText){
     const tpl = getChannelTemplate(channelObj, chName);
     if(tpl) channelObj.sentText = tpl.text;
+    if(tpl && chName === 'Email' && !channelObj.subject) channelObj.subject = tpl.subject;
   }
 }
 function retryChannel(companyId, chName){
@@ -1070,7 +1076,12 @@ function performSendAction(companyId, chName){
   if(chName === 'Email' && window.EmailSender){
     const tpl = getChannelTemplate(ch, chName);
     const fill = (s) => (s || "").replace(/\{\{\s*company\s*\}\}/gi, c.name);
-    const subject = fill(tpl && tpl.subject) || `Message for ${c.name}`;
+    // prefer the AI-drafted, personalized subject (ch.subject, filled in by
+    // performDraftAction from fetchDraft's { subject, text } result); fall
+    // back to the attached template's subject, then a generic default \u2014
+    // same fallback chain this always had, just with the real drafted
+    // subject taking priority now that one exists.
+    const subject = (ch.subject && ch.subject.trim()) || fill(tpl && tpl.subject) || `Message for ${c.name}`;
     // safe-send.js: while "Send Real Messages" is off, this redirects to your
     // preset test address unless you've clicked "Use Real Email" for this company
     const toAddress = window.SafeSend ? window.SafeSend.resolveAddress(c.id, ch.address) : ch.address;
@@ -1212,8 +1223,9 @@ function runDraftAllSequential(companyId, onDone){
  * Gathers the company's info (from Fetch/Generate Info) and whatever template
  * is attached to this channel, hands both to window.AI.fetchDraft (ai.js),
  * and drops whatever it returns straight into the channel's draft
- * (ch.sentText for Email/iMessage/Viber, ch.script for Calls) — exactly like
- * performInfoAction does for company info. Returns a Promise<boolean> so
+ * (ch.sentText for Email/iMessage/Viber, ch.script for Calls — plus ch.subject
+ * for Email, since fetchDraft splits Email replies into { subject, text }) —
+ * exactly like performInfoAction does for company info. Returns a Promise<boolean> so
  * callers (runAction, runDraftAllSequential) know whether it actually
  * produced a draft or errored out.
  */
@@ -1251,12 +1263,16 @@ function performDraftAction(companyId, chName, opts){
     templateSubject: tpl ? tpl.subject : "",
     language: ch.language,
   }, debug)
-    .then(text => {
+    .then(result => {
       stopLoadingCycle(key);
       if(isCalls){
-        ch.script = text;
+        ch.script = result.text;
       } else {
-        ch.sentText = text;
+        ch.sentText = result.text;
+        // Email only \u2014 fetchDraft() writes/parses a personalized subject line
+        // alongside the body for Email; other channels have no subject concept
+        // so result.subject is always "" for them and this is a no-op.
+        if(chName === 'Email' && result.subject) ch.subject = result.subject;
       }
       ch.aiInput = debug.request || '';
       ch.aiOutput = debug.response || '';
@@ -1750,13 +1766,31 @@ function openModal(companyId, channel, field){
     document.getElementById('modalTitle').textContent = `${channel} \u2013 Sent Text`;
     optionsWrap.style.display = "none";
     textSection.style.display = "block";
-    textSubtitle.textContent = "What you sent";
-    textArea.value = ch.sentText || "";
-    textArea.placeholder = "Type the message you sent...";
-    saveBtn.onclick = () => {
-      updateField(companyId, channel, 'sentText', textArea.value);
-      closeModal();
-    };
+    if(channel === 'Email'){
+      // Email has a real subject/body split (AI-drafted or hand-edited), so
+      // show and save both \u2014 subject in the first box, body in the second,
+      // reusing the same two-box layout the AI Input/Output modal uses.
+      textSubtitle.textContent = "Subject";
+      textArea.value = ch.subject || "";
+      textArea.placeholder = "Subject line...";
+      textSection2.style.display = "block";
+      textSubtitle2.textContent = "Body";
+      textArea2.value = ch.sentText || "";
+      textArea2.placeholder = "Type the message you sent...";
+      saveBtn.onclick = () => {
+        updateField(companyId, channel, 'subject', textArea.value);
+        updateField(companyId, channel, 'sentText', textArea2.value);
+        closeModal();
+      };
+    } else {
+      textSubtitle.textContent = "What you sent";
+      textArea.value = ch.sentText || "";
+      textArea.placeholder = "Type the message you sent...";
+      saveBtn.onclick = () => {
+        updateField(companyId, channel, 'sentText', textArea.value);
+        closeModal();
+      };
+    }
   }
 
   document.getElementById('modalOverlay').classList.add('active');
