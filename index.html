@@ -494,6 +494,7 @@
         </div>
       </div>
       <div class="modal-actions">
+        <button class="modal-retry-btn" id="modalCheckReplyBtn" style="display:none;">🔄 Check for Reply</button>
         <button class="modal-retry-btn" id="modalRetryBtn" style="display:none;">Try Again</button>
         <button class="modal-save-btn" id="modalSaveBtn">Save</button>
       </div>
@@ -1336,6 +1337,72 @@ function performFetchLinkAction(companyId){
   });
 }
 
+/* performCheckReplyAction — the Response modal's "Check for Reply" button.
+ * Calls /api/check-reply (functions/api/check-reply.js) with the Email
+ * channel's saved gmailThreadId, which asks Gmail for that thread and hands
+ * back the newest message in it that isn't one we sent. If there is one,
+ * it's written straight into ch.responseText (and the modal's textarea, so
+ * you see it immediately without having to reopen the popup) \u2014 no more
+ * manually copy/pasting the reply over from Gmail.
+ * textArea/linkInput/syncLinkOpen are the live modal elements, passed in so
+ * this can update what's on screen right now without forcing you to close
+ * and reopen the popup to see the fetched text.
+ */
+function performCheckReplyAction(companyId, channel, textArea){
+  const key = actionKey(companyId, channel, 'checkReply');
+  if(btnBusy[key]) return Promise.resolve(false);
+
+  const c = state.companies.find(c=>c.id===companyId);
+  const ch = c.channels[channel];
+  const checkReplyBtn = document.getElementById('modalCheckReplyBtn');
+
+  btnBusy[key] = 'loading';
+  checkReplyBtn.disabled = true;
+  checkReplyBtn.textContent = "\u23F3 Checking...";
+
+  return fetch('/api/check-reply', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ threadId: ch.gmailThreadId }),
+  })
+    .then(res => res.text().then(rawText => {
+      let data = null;
+      try { data = rawText ? JSON.parse(rawText) : null; } catch(e){ /* fall through */ }
+      if(!res.ok || !data || !data.ok){
+        throw new Error((data && data.error) || rawText || `HTTP ${res.status}`);
+      }
+      return data;
+    }))
+    .then(data => {
+      delete btnBusy[key];
+      checkReplyBtn.disabled = false;
+      if(!data.hasReply){
+        checkReplyBtn.textContent = "No reply yet";
+        setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 1800);
+        return false;
+      }
+      // Prepend who/when it came from so that's never lost even though
+      // there's only a single free-text field to store it in.
+      const meta = [data.from && `From: ${data.from}`, data.date && `Date: ${data.date}`].filter(Boolean).join("\n");
+      const fullText = meta ? `${meta}\n\n${data.text || ''}` : (data.text || '');
+      ch.responseText = fullText;
+      // still live in the DOM (modal is open) \u2014 reflect it immediately
+      if(textArea) textArea.value = fullText;
+      checkReplyBtn.textContent = "\u2705 Reply found!";
+      setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 1800);
+      render();
+      return true;
+    })
+    .catch(err => {
+      delete btnBusy[key];
+      checkReplyBtn.disabled = false;
+      checkReplyBtn.textContent = "\u26A0\uFE0F Failed \u2014 retry";
+      checkReplyBtn.title = (err && err.message) ? err.message : 'Check failed';
+      setTimeout(() => { checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply"; }, 2500);
+      return false;
+    });
+}
+
 function sendAll(companyId){
   runSendAllSequential(companyId);
 }
@@ -1935,8 +2002,11 @@ function openModal(companyId, channel, field){
   const linkMirrorRow = document.getElementById('modalLinkMirrorRow');
   const linkMirrorText = document.getElementById('modalLinkMirrorText');
   const linkMirrorOpen = document.getElementById('modalLinkMirrorOpen');
+  const checkReplyBtn = document.getElementById('modalCheckReplyBtn');
 
   retryBtn.style.display = "none";
+  checkReplyBtn.style.display = "none";
+  checkReplyBtn.disabled = false;
   textSection2.style.display = "none";
   linkRow.style.display = "none";
   linkMirrorRow.style.display = "none";
@@ -1988,6 +2058,14 @@ function openModal(companyId, channel, field){
     };
     syncLinkOpen();
     linkInput.oninput = syncLinkOpen;
+    // Email replies can be pulled straight from Gmail: only offered once
+    // there's a thread to check (i.e. this channel's Email has been sent
+    // at least once and has a gmailThreadId on file).
+    if(channel === 'Email' && ch.gmailThreadId){
+      checkReplyBtn.style.display = "inline-block";
+      checkReplyBtn.textContent = "\uD83D\uDD04 Check for Reply";
+      checkReplyBtn.onclick = () => performCheckReplyAction(companyId, channel, textArea);
+    }
     saveBtn.onclick = () => {
       updateField(companyId, channel, 'responseText', textArea.value);
       updateField(companyId, channel, 'responseLink', linkInput.value.trim());
