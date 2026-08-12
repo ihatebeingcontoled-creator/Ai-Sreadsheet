@@ -676,21 +676,40 @@ function connectionPillClass(v){
    OpenAI-style chat completion body when the call succeeded, which always
    carries a "usage" object (prompt_tokens / completion_tokens / total_tokens
    — what Groq actually meters credits against). Pull that out to show real
-   numbers instead of the raw JSON blob. Returns null if the text isn't
-   parseable JSON or has no usage on it (e.g. it's a friendly error string). */
+   numbers instead of the raw JSON blob. Returns null if there's genuinely no
+   usage info anywhere in the text (e.g. it's a friendly error string). */
 function extractUsage(rawText){
   if(!rawText) return null;
-  let obj;
-  try{ obj = JSON.parse(rawText); } catch(e){ return null; }
-  const u = obj && (obj.usage || (obj.x_groq && obj.x_groq.usage));
+  let text = String(rawText).trim();
+  // some debug captures wrap the JSON in a ```json ... ``` fence for display
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/```\s*$/, '');
+
+  let obj = null;
+  try{ obj = JSON.parse(text); } catch(e){ obj = null; }
+  let u = obj && (obj.usage || (obj.x_groq && obj.x_groq.usage));
+
+  // Fall back to pulling a "usage": {...} fragment straight out of the raw
+  // text with a regex, even when the surrounding response doesn't parse as
+  // whole/valid JSON (e.g. it got truncated before being stored for display —
+  // "usage" is a small, self-contained object near the end of the response,
+  // so this still finds it when the outer envelope is cut off or malformed).
+  if(!u){
+    const m = text.match(/"usage"\s*:\s*(\{[^{}]*\})/);
+    if(m){ try{ u = JSON.parse(m[1]); } catch(e2){ u = null; } }
+  }
   if(!u) return null;
-  return {
-    promptTokens: u.prompt_tokens,
-    completionTokens: u.completion_tokens,
-    totalTokens: u.total_tokens,
-    totalTime: u.total_time,
-    model: obj.model || ''
-  };
+
+  // tolerate camelCase too, in case whatever produced this text used it
+  let promptTokens = u.prompt_tokens != null ? u.prompt_tokens : u.promptTokens;
+  let completionTokens = u.completion_tokens != null ? u.completion_tokens : u.completionTokens;
+  let totalTokens = u.total_tokens != null ? u.total_tokens : u.totalTokens;
+  if(totalTokens == null && (promptTokens != null || completionTokens != null)){
+    totalTokens = (promptTokens || 0) + (completionTokens || 0);
+  }
+  if(promptTokens == null && completionTokens == null && totalTokens == null) return null;
+
+  const model = (obj && obj.model) || (text.match(/"model"\s*:\s*"([^"]+)"/) || [])[1] || '';
+  return { promptTokens, completionTokens, totalTokens, model };
 }
 function usageTokensHtml(usage){
   if(!usage) return `<span class="usage-row-tokens none">Not run yet</span>`;
@@ -710,6 +729,11 @@ function buildUsagePanelHtml(company, currentChannel){
   const draftRowsHtml = CHANNEL_ORDER.map(chName => {
     const ch = company.channels[chName];
     const usage = extractUsage(ch.aiOutput);
+    if(!ch.aiOutput && (ch.sentText || ch.script)){
+      console.warn(`[usage] ${chName} has a drafted result but no aiOutput was ever captured \u2014 debug.response came back empty from ai.js's fetchDraft call.`);
+    } else if(ch.aiOutput && !usage){
+      console.warn(`[usage] couldn't find token usage in ${chName}'s stored AI response \u2014 check the raw shape:`, ch.aiOutput);
+    }
     if(usage && usage.totalTokens) totalTokensRef.value += usage.totalTokens;
     if(usage && usage.model) totalTokensRef.model = usage.model;
     const icon = chName === 'Calls' ? '\uD83D\uDCDD' : '\u270F\uFE0F';
@@ -740,6 +764,11 @@ function buildUsagePanelHtml(company, currentChannel){
   }).join('');
 
   const infoUsage = extractUsage(company.infoOutput);
+  if(!company.infoOutput && company.info){
+    console.warn(`[usage] this company has fetched Info but no infoOutput was ever captured \u2014 either fetchCompanyInfo doesn't support a debug object the way fetchDraft does, or it wasn't wired to accept one.`);
+  } else if(company.infoOutput && !infoUsage){
+    console.warn(`[usage] couldn't find token usage in this company's stored Info response \u2014 check the raw shape:`, company.infoOutput);
+  }
   if(infoUsage && infoUsage.totalTokens) totalTokensRef.value += infoUsage.totalTokens;
   if(infoUsage && infoUsage.model) totalTokensRef.model = infoUsage.model;
   const infoBlockHtml = `
