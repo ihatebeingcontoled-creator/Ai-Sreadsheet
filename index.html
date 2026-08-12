@@ -251,6 +251,17 @@
     background:var(--surface);
   }
   .link-agg-count{ font-size:11px; color:var(--text-dim); text-align:center; white-space:nowrap; }
+  /* flashed on the Response aggregate count for a few seconds right after
+     Check Reply / Check All Replies finds a NEW reply that wasn't on file
+     before \u2014 see recentlyFoundReply in the script below. */
+  @keyframes rainbow-shift{ to{ background-position: 200% center; } }
+  .rainbow-text{
+    background: linear-gradient(90deg, #ff6b6b, #feca57, #1dd1a1, #54a0ff, #a06bff, #ff6b6b);
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: rainbow-shift 1.3s linear infinite;
+    font-weight: 700;
+  }
 
   .text-preview-btn{
     display:block; width:100%; text-align:left; background:none; border:1px solid transparent;
@@ -629,6 +640,12 @@ function channelDraftConnectionStatus(chName){
 function channelHasResponse(ch){
   return !!(ch.responseText && ch.responseText.trim());
 }
+// true for a few seconds right after Check Reply / Check All Replies finds
+// a genuinely new reply on any of this company's channels \u2014 drives the
+// rainbow flash on the aggregate "X/Y replied" count.
+function companyHasRecentReplyFound(company){
+  return CHANNEL_ORDER.some(chName => recentlyFoundReply[actionKey(company.id, chName, 'checkReply')]);
+}
 // companyId/chName are optional \u2014 when given, an in-flight or just-finished
 // "Check for Reply" (see checkReplyForChannel) takes priority over the
 // normal Replied/Waiting pill, so the row visibly shows Checking.../Nothing
@@ -674,6 +691,7 @@ let contactErrorFlags = {}; // actionKey(companyId, chName, 'send') -> true whil
 let aiErrorFlags = {}; // actionKey(...) -> error message string while a real AI call has failed
 let sendErrorFlags = {}; // actionKey(companyId, chName, 'send') -> error message string while a real Send (Email, via Gmail) has failed
 let replyCheckStatus = {}; // actionKey(companyId, chName, 'checkReply') -> 'checking' | 'notfound' | 'error' while a Check for Reply run is live/just finished
+let recentlyFoundReply = {}; // same key -> true for a few seconds right after a NEW reply is found, so the count can flash rainbow
 function companyContactMissing(company){
   return CHANNEL_ORDER.some(chName => {
     if(chName === 'Calls') return false;
@@ -949,7 +967,7 @@ function renderBody(){
         <td class="agg-cell">
           <div class="link-agg-box">
             ${checkReplyAggBtn(company)}
-            <div class="link-agg-count">${agg.responded}/${agg.total} replied</div>
+            <div class="link-agg-count${companyHasRecentReplyFound(company) ? ' rainbow-text' : ''}">${agg.responded}/${agg.total} replied</div>
           </div>
         </td>
         <td class="agg-cell${agg.linked===agg.total && agg.total>0 ? ' agg-complete' : ''}">
@@ -1439,8 +1457,16 @@ function checkReplyForChannel(companyId, chName){
       // there's only a single free-text field to store it in.
       const meta = [data.from && `From: ${data.from}`, data.date && `Date: ${data.date}`].filter(Boolean).join("\n");
       const fullText = meta ? `${meta}\n\n${data.text || ''}` : (data.text || '');
+      // "new" = this check actually changed what was on file (first-ever
+      // find, or the thread moved on to a newer message) \u2014 re-confirming
+      // the same reply you already had saved doesn't re-trigger the flash.
+      const isNew = fullText.trim() !== '' && ch.responseText !== fullText;
       ch.responseText = fullText;
       delete replyCheckStatus[key];
+      if(isNew){
+        recentlyFoundReply[key] = true;
+        setTimeout(() => { delete recentlyFoundReply[key]; render(); }, 4000);
+      }
       render();
       return true;
     })
@@ -1468,11 +1494,19 @@ function performCheckReplyAction(companyId, channel, textArea){
   });
 }
 
+// tiny delay helper \u2014 used between Check Reply steps so each one's
+// Checking.../Replied/Nothing found state is actually visible for a beat
+// instead of flashing past instantly when a check resolves fast.
+function wait(ms){
+  return new Promise(resolve => setTimeout(resolve, ms));
+}
+
 /* checkAllRepliesForCompany — the compact "Check Reply" button in the
  * Response column's aggregate cell (next to the linked/response counts).
  * Runs checkReplyForChannel across every channel on this company that has
  * a gmailThreadId on file (currently only ever Email, but this stays
- * correct if that ever changes), one at a time.
+ * correct if that ever changes), one at a time, with a short pause
+ * between each so the checking animation is visible rather than instant.
  */
 function checkAllRepliesForCompany(companyId){
   const allKey = actionKey(companyId, '', 'checkReplyAll');
@@ -1493,43 +1527,60 @@ function checkAllRepliesForCompany(companyId){
         setTimeout(() => { delete btnBusy[allKey]; render(); resolve(); }, 700);
         return;
       }
-      checkReplyForChannel(companyId, targets[idx]).then(() => step(idx + 1));
+      checkReplyForChannel(companyId, targets[idx]).then(() => wait(200)).then(() => step(idx + 1));
     }
     step(0);
   });
 }
 
 /* checkAllRepliesGlobal — the "Check All Replies" button in the stats row
- * at the very top of the page. Walks every company and every channel that
- * has a gmailThreadId on file and checks each, one at a time (sequential,
- * same reasoning as Send All \u2014 gentler on the Gmail API than firing them
- * all in parallel).
+ * at the very top of the page. Walks every company that has at least one
+ * channel with a gmailThreadId on file, one company at a time, and within
+ * each company checks its channels one at a time too (sequential end to
+ * end, same reasoning as Send All \u2014 gentler on the Gmail API than firing
+ * everything in parallel, and it's what makes the run visible: each
+ * company's own "Check Reply" button lights up in turn even while that
+ * company's row is collapsed, instead of just one big spinner up top with
+ * no sense of progress). A short pause after each channel/company keeps
+ * every step on screen long enough to actually see, instead of a fast
+ * check flashing past before you notice it.
  */
 function checkAllRepliesGlobal(){
   const allKey = 'global|checkReplyAll';
   if(btnBusy[allKey]) return;
 
-  const targets = [];
-  state.companies.forEach(c => {
-    CHANNEL_ORDER.forEach(chName => {
-      if(c.channels[chName].gmailThreadId) targets.push([c.id, chName]);
-    });
-  });
-  if(targets.length === 0) return;
+  const companyTargets = state.companies
+    .map(c => ({ companyId: c.id, channels: CHANNEL_ORDER.filter(chName => c.channels[chName].gmailThreadId) }))
+    .filter(t => t.channels.length > 0);
+  if(companyTargets.length === 0) return;
 
   btnBusy[allKey] = 'loading';
   render();
 
-  function step(idx){
-    if(idx >= targets.length){
+  function stepCompany(idx){
+    if(idx >= companyTargets.length){
       btnBusy[allKey] = 'success';
       render();
       setTimeout(() => { delete btnBusy[allKey]; render(); }, 900);
       return;
     }
-    checkReplyForChannel(targets[idx][0], targets[idx][1]).then(() => step(idx + 1));
+    const { companyId, channels } = companyTargets[idx];
+    const companyKey = actionKey(companyId, '', 'checkReplyAll');
+    btnBusy[companyKey] = 'loading';
+    render();
+
+    function stepChannel(cIdx){
+      if(cIdx >= channels.length){
+        btnBusy[companyKey] = 'success';
+        render();
+        setTimeout(() => { delete btnBusy[companyKey]; render(); stepCompany(idx + 1); }, 500);
+        return;
+      }
+      checkReplyForChannel(companyId, channels[cIdx]).then(() => wait(200)).then(() => stepChannel(cIdx + 1));
+    }
+    stepChannel(0);
   }
-  step(0);
+  stepCompany(0);
 }
 
 function sendAll(companyId){
